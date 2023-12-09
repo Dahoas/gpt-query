@@ -1,6 +1,7 @@
 import os
 import asyncio
 from typing import List
+from time import time
 
 from gptquery.utils import chunk
 from gptquery.logger import Logger
@@ -15,11 +16,12 @@ class GPT:
                  model_name,
                  temperature=0.7, 
                  max_num_tokens=4096, 
-                 mb_size=5,
+                 mb_size=10,
                  system_prompt_text="You are a helpful AI assistant.",
                  task_prompt_text=None,
                  log=True,
-                 oai_key=None,):
+                 oai_key=None,
+                 verbose=False,):
         assert oai_key is not None or os.environ.get("OPENAI_API_KEY") is not None
         os.environ["OPENAI_API_KEY"] = oai_key
 
@@ -41,20 +43,26 @@ class GPT:
         self.agent = LLMChain(llm=self.endpoint, prompt=self.prompt_template)
 
         self.log = log
+        self.verbose = verbose
 
-    def __call__(self, batch: List[dict], one_by_one=False):
+    def __call__(self, batch: List[dict], one_by_one=False, output_key="response"):
+        t = time()
         if one_by_one:
-            for sample in batch:
+            for i, sample in enumerate(batch):
                 response = self.agent.apply([sample])
-                sample["response"] = response["text"]
+                sample[output_key] = response[0]["text"]
                 if self.log:
-                    Logger.log(sample)
+                    Logger.log([sample])
+                if self.verbose:
+                    print(f"Finished batch {i} of {len(batch)} in {(time() - t) / 60} min. ({(time() - t) / ((i+1)*60)} min. per sample)")
         else:
             mbs = chunk(batch, self.mb_size)
-            for mb in mbs:
+            for i, mb in enumerate(mbs):
                 batch_responses = asyncio.run(self.agent.aapply(mb))
                 for sample, response in zip(mb, batch_responses):
-                    sample["response"] = response["text"]
-            if self.log:
-                Logger.log(mb)
+                    sample[output_key] = response["text"]
+                if self.log:
+                    Logger.log(mb)
+                if self.verbose:
+                    print(f"Finished batch {i} of {len(mbs)} in {(time() - t) / 60} min. ({(time() - t) / ((i+1)*60*self.mb_size)} min. per sample)")
         return batch
