@@ -1,0 +1,1 @@
+{"accuracy": 0.8097043214556482, "verdict_parse_fail_rate": 0.003032600454890068, "final_answer_parse_fail_rate": 0.026535253980288095, "precision": 0.8647260273972602, "recall": 0.9190172884440401, "% correct verdict": 0.8855193328279, "f1": 0.4455227172474636}
