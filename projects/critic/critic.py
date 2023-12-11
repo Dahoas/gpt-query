@@ -6,7 +6,7 @@ from datasets import load_dataset
 from utils import load_jsonl
 
 
-oai_key = "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"
+oai_key = ""
 
 def solve_gsm8k():
     system_prompt_text = "You are a top student solving mathematics questions. \
