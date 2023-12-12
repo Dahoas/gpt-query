@@ -117,5 +117,19 @@ def prepare_refinement_for_eval():
     dump_jsonl(dataset, "rollouts/gpt_3.5_turbo_gsm8k_eval_draft_refine.jsonl")
 
 
+def create_multi_sample_dataset():
+    sample_data = load_jsonl("rollouts/gpt_3.5_turbo_gsm8k_sampled.jsonl")
+    grouped_sample_data = group_by_prompt(sample_data, key="prompt")
+    new_dataset = []
+    for samples in grouped_sample_data.values():
+        sample = {k: samples[k][0] for k in samples}
+        for i, answer in enumerate(samples["model_answer"]):
+            sample[f"model_answer_{i+1}"] = answer
+        if len(samples["model_answer"]) == 3:
+            new_dataset.append(sample)
+
+    dump_jsonl(new_dataset, "rollouts/gpt_3.5_turbo_gsm8k_multi_sample_3.jsonl")
+    print("New dataset len: ", len(new_dataset))
+
 if __name__ == "__main__":
-    prepare_refinement_for_eval()
+    create_multi_sample_dataset()

@@ -1,1 +1,1 @@
-{"accuracy": 0.7975739196360879, "verdict_parse_fail_rate": 0.021986353297952996, "final_answer_parse_fail_rate": 0.026535253980288095, "precision": 0.8600682593856656, "recall": 0.9316081330868762, "f1": 0.4472049689440994}
+{"accuracy_A1": 0.8059135708870356, "precision_A1": 0.8600682593856656, "recall_A1": 0.9163636363636364, "%_correct_verdict_A1": 0.88855193328279, "f1_A1": 0.44366197183098594, "maj@1_A1": 0.8339651250947687, "verifier_score_A1": 0.88855193328279, "final_answer_parse_error_A1": 0.026535253980288095, "verdict_parse_error_A1": 0.0}

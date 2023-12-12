@@ -39,11 +39,12 @@ For your final verdict for A1 write 'Final Verdict A1: ' and similarly for A2.\n
 {prompt}\n\n\
 A1: {model_answer}\n\n\
 A2: {refinement}",
-    "eval_gsm8k_ref_sol": "Is the following final answer to the question correct? \
-You will be given an accompanying reference solution to use. Do not use code. \
-Do not give your final verdict until after any justification.\
-For your final verdict write 'Final Verdict: '.\n\n\
+    "eval_gsm8k_three_sol": "You will be shown multiple candidate solutions to a math question and \
+must decide which are Correct or Incorrect. You are encouraged to compare and contrast both to improve your decision. Do NOT use code. \
+Do not give your final verdict until after any justification. \
+For your final verdict for A1 write 'Final Verdict A1: ' and similarly for A2, A3.\n\n\
 {prompt}\n\n\
-Ref: {model_answer_1}\n\n\
-A: {model_answer_2}",
+A1: {model_answer_1}\n\n\
+A2: {model_answer_2}\n\n\
+A3: {model_answer_3}",
 }

@@ -12,14 +12,15 @@ from utils import (load_jsonl,
                    decode_nested_lists,
                    get_first_key,
                    dump_jsonl,
-                   dict_to_jsonl,)
+                   dict_to_jsonl,
+                   jsonl_to_dict,)
+
+from eval_gsm8k import get_gsm8k_final_answer, clean_gsm8k_final_answer
+from eval_math import get_math_final_answer, clean_math_final_answer
 
 from datasets import Dataset
 import numpy as np
 
-
-verdict_parse_error = 0
-final_answer_parse_error = 0
 
 #####Some helper functions#####
 
@@ -31,49 +32,36 @@ def check_equals(n1, n2):
         return int(n1 == n2)
 
 
-def get_final_answer(response):
-    return response.split("Final Answer: ")[-1].split("#### ")[-1]
-
-
-def clean_final_answer(final_answer : str):
-    global final_answer_parse_error
-    final_answer = final_answer.split("=")[-1]
-    # Extract number from final answer
-    integer_final_answer = re.findall(r"\d[\d,\.]*", final_answer)
-    if len(integer_final_answer) > 1:
-        print("MULTIPLE INTEGER FINAL ANSWERS FOUND!!!")
-        print(final_answer)
-        print(integer_final_answer)
-        print("----------------")
-        final_answer_parse_error += 1
-    elif len(integer_final_answer) == 0:
-        print("NO INTEGER FINAL ANSWERS FOUND!!!")
-        print(final_answer)
-        print(integer_final_answer)
-        print("----------------")
-        final_answer_parse_error += 1
-        return ""
-    integer_final_answer = integer_final_answer[0]
-    integer_final_answer = integer_final_answer.replace("$", "").replace(",", "")
-    return integer_final_answer
-
-
 def split(l, n):
     """Split list l into chunks of size (at most) n"""
     num_chunks = (len(l) + n - 1) // n
     return [l[i*n : (i+1)*n] for i in range(num_chunks)]
 
 
+def get_clean_final_answer(answer, benchmark):
+    results = {}
+    if benchmark.lower() == "gsm8k":
+        final_answer = get_gsm8k_final_answer(answer)
+        results["final_answer"], results["final_answer_parse_error"] = clean_gsm8k_final_answer(final_answer)
+    elif benchmark.lower() == "math":
+        print("MATH INPUT: ", answer)
+        final_answer = get_math_final_answer(answer)
+        results["final_answer"], results["final_answer_parse_error"] = clean_math_final_answer(final_answer)
+    else:
+        raise ValueError(f"Unknown benchmark: {benchmark}!!!")
+    return results
+
+
 #####Eval functions#####
 # Evaluate single question single/multiple answer formats
 
-def sparse_heuristic(model_final_answer, gt_final_answer):
+def maj_1(model_final_answer, gt_final_answer):
     return float(check_equals(model_final_answer, gt_final_answer))
 
-def pass_at_n(model_final_answers, gt_final_answer):
+def pass_n(model_final_answers, gt_final_answer):
     return max([float(check_equals(mfa, gt_final_answer)) for mfa in model_final_answers])
 
-def majority_vote(model_final_answers, gt_final_answer):
+def maj_n(model_final_answers, gt_final_answer):
     counts = {}
     maj_ans = model_final_answers[0]
     for mfa in model_final_answers:
@@ -81,29 +69,33 @@ def majority_vote(model_final_answers, gt_final_answer):
         maj_ans = maj_ans if counts[mfa] < counts[maj_ans] else mfa
     return float(check_equals(maj_ans, gt_final_answer))
 
-# NOTE: This could (should) be subsumed by a reranking evaluator
+# NOTE: This could (should) be subsumed by a reranking evaluator 
 def eval_draft_refinement(gt_fa, draft_fa, refinement_fa, draft_score, refinement_score):
     chosen_fa = draft_fa if draft_score >= refinement_score else refinement_fa
-    return sparse_heuristic(chosen_fa, gt_fa)
+    return maj_1(chosen_fa, gt_fa)
 
-def eval(model_answers : Union[str, List[str]], tok_outputs, gt_answer : str, model_tok = None, mode : str = "sparse_heuristic", rubric : Optional[str] = None, rm = None, *args, **kwargs) -> int:
-    global verdict_parse_error
-    gt_final_answer = clean_final_answer(get_final_answer(gt_answer))
+def eval(model_answers : Union[str, List[str]], gt_answer : str, mode : str = "sparse_heuristic", benchmark="gsm8k", *args, **kwargs) -> int:
+    results = {}
+    gt_final_answer, results["gt_parse_error"] = get_clean_final_answer(answer=gt_answer, benchmark=benchmark).values()
     if type(model_answers) is list:
-        model_final_answers = [clean_final_answer(get_final_answer(model_answer)) for model_answer in model_answers]
+        model_final_answers, final_answer_parse_error = jsonl_to_dict([get_clean_final_answer(model_answer, benchmark=benchmark) for model_answer in model_answers]).values()
     else:
-        model_final_answer = clean_final_answer(get_final_answer(model_answers))
-    if mode == "sparse_heuristic":
-        score = sparse_heuristic(model_final_answer, gt_final_answer)
-    elif mode == "pass_at_n":
-        score = pass_at_n(model_final_answers, gt_final_answer)
-    elif mode == "majority_vote":
-        score = majority_vote(model_final_answers, gt_final_answer)
-    elif mode == "eval_gpt4_single_step_eval":
-        score = sparse_heuristic(model_final_answer, gt_final_answer)
+        model_final_answer, final_answer_parse_error = get_clean_final_answer(model_answers, benchmark=benchmark).values()
+    results["final_answer_parse_error"] = np.sum(final_answer_parse_error)
+
+    if mode == "maj@1":
+        results["maj@1"] = maj_1(model_final_answer, gt_final_answer)
+    elif mode == "pass@n":
+        results["pass@n"] = pass_n(model_final_answers, gt_final_answer)
+    elif mode == "maj@n":
+        results["maj@n"] = maj_n(model_final_answers, gt_final_answer)
+    elif mode == "eval_verifier":
+        score = maj_1(model_final_answer, gt_final_answer)
+        results["maj@1"] = score
+        results["verdict_parse_error"] = 0
         eval_score = kwargs.get("verdict")
-        eval_score = re.split(r"Final Verdict( A2)?: ", eval_score)[-1].strip()  # NOTE: A2 is the model generated answer
-        #eval_score = re.split(r"Final Verdict( A[12])?: ", eval_score)[-1].strip()
+        loc = kwargs.get("loc")
+        eval_score = re.split(f"Final Verdict( A{loc})?: ", eval_score)[-1].split("\n")[0].strip()
         if eval_score.lower() == "yes" or eval_score.lower() == "correct":
             eval_score = 1
         elif eval_score.lower() == "no" or eval_score.lower() == "incorrect":
@@ -111,66 +103,61 @@ def eval(model_answers : Union[str, List[str]], tok_outputs, gt_answer : str, mo
         else:
             print(f"Eval verdict is unknown: {eval_score}!!!")
             print("---------------------")
-            verdict_parse_error += 1
-        return int(score == eval_score), score, eval_score
+            results["verdict_parse_error"] += 1
+            eval_score = 0
+        results["verifier_score"] = eval_score
+        results["eval_verifier"] = int(score == eval_score)
     elif mode == "refinement":
         draft_fa = model_final_answer
-        refinement_fa = clean_final_answer(get_final_answer(kwargs.get("refinement")))
+        refinement_fa = get_clean_final_answer((kwargs.get("refinement")))
         score = eval_draft_refinement(gt_fa=gt_final_answer, 
                                       draft_fa=draft_fa,
                                       refinement_fa=refinement_fa,
                                       draft_score=kwargs.get("draft_score"),
                                       refinement_score=kwargs.get("refinement_score"),)
-    elif mode == "model rubric":
-        assert rubric is not None
-        raise NotImplementedError
-    elif mode == "rm":
-        assert rm is not None
-        raise NotImplementedError
     else:
         raise ValueError(f"Unsupported evaluation model {mode}!")
-    return score
+    return results
 
 
 #####Reward functions for RL#####
 # These are essentially batched versions of the evaluation functions
 
-def sparse_reward_fn(outputs, tok_outputs, gt_answers, *args, **kwargs):
-    return [eval(output, tok_output, gt_ans, mode="sparse_heuristic", *args, **kwargs) for output, tok_output, gt_ans in zip(outputs, tok_outputs, gt_answers)]
+def maj_1_reward_fn(outputs, gt_answers, benchmark="gsm8k", *args, **kwargs):
+    return [eval(output, gt_ans, mode="maj@1", benchmark=benchmark, *args, **kwargs) for output, gt_ans in zip(outputs, gt_answers)]
 
 
-def pass_at_n_reward_fn(outputs, tok_outputs, gt_answers, num_return_sequences, *args, **kwargs):
+def pass_n_reward_fn(outputs, gt_answers, num_return_sequences, benchmark="gsm8k", *args, **kwargs):
     # Batch outputs, gt_answers into chunks of size num_return_sequences
     output_chunks = split(outputs, num_return_sequences)
-    tok_output_chunks = split(tok_outputs, num_return_sequences)
     gt_answer_chunks = split(gt_answers, num_return_sequences)
     scores = []
-    for output_chunk, tok_output_chunk, gt_answer_chunk in zip(output_chunks, tok_output_chunks, gt_answer_chunks):
-        score = eval(output_chunk, tok_output_chunk, gt_answer_chunk[0], mode="pass_at_n", *args, **kwargs)
+    for output_chunk, gt_answer_chunk in zip(output_chunks, gt_answer_chunks):
+        score = eval(output_chunk, gt_answer_chunk[0], mode="pass@n", benchmark=benchmark, *args, **kwargs)
         scores += [score] * len(output_chunk)
     # Return a score for each output, gt_answer pair (note this will be redundant num_return_sequences times)
     return scores
 
-def majority_vote_reward_fn(outputs, tok_outputs, gt_answers, num_return_sequences, *args, **kwargs):
+def maj_n_reward_fn(outputs, gt_answers, num_return_sequences, benchmark="gsm8k", *args, **kwargs):
     # Batch outputs, gt_answers into chunks of size num_return_sequences
     output_chunks = split(outputs, num_return_sequences)
-    tok_output_chunks = split(tok_outputs, num_return_sequences)
     gt_answer_chunks = split(gt_answers, num_return_sequences)
     scores = []
-    for output_chunk, tok_output_chunk, gt_answer_chunk in zip(output_chunks, tok_output_chunks, gt_answer_chunks):
-        score = eval(output_chunk, tok_output_chunk, gt_answer_chunk[0], mode="majority_vote", *args, **kwargs)
+    for output_chunk, gt_answer_chunk in zip(output_chunks, gt_answer_chunks):
+        score = eval(output_chunk, gt_answer_chunk[0], mode="maj@n", benchmark=benchmark, *args, **kwargs)
         scores += [score] * len(output_chunk)
     # Return a score for each output, gt_answer pair (note this will be redundant num_return_sequences times)
     return scores
 
-def eval_draft_refinement_reward_fn(outputs, refinements, gt_answers, draft_scores, refinement_scores, *args, **kwargs):
+def eval_draft_refinement_reward_fn(outputs, refinements, gt_answers, draft_scores, refinement_scores, benchmark="gsm8k", *args, **kwargs):
     return [eval(model_answers=draft,
                  tok_outputs=None,
                  refinement=refinement, 
                  draft_score=draft_score,
                  refinement_score=refinement_score, 
                  gt_answer=gt_answer,
-                 mode="refinement",) for draft, refinement, draft_score, refinement_score, gt_answer in zip(outputs, refinements, draft_scores, refinement_scores, gt_answers)]
+                 mode="refinement",
+                 benchmark=benchmark,) for draft, refinement, draft_score, refinement_score, gt_answer in zip(outputs, refinements, draft_scores, refinement_scores, gt_answers)]
 
 #####Metric Functions#####
 
@@ -187,50 +174,52 @@ def extract_response(output, i):
         return "I do not have an answer."
 
 
-def default_metric_fn(outputs, tok_outputs, gt_answers, *args, **kwargs):
+def default_metric_fn(outputs, gt_answers, benchmark, *args, **kwargs):
     metrics = {}  
-    metrics["maj@1"] = sparse_reward_fn(outputs, tok_outputs, gt_answers, *args, **kwargs)
-    metrics["parse_fail_rate"] = final_answer_parse_error / len(outputs)
-    #loose_dense_rewards = loose_dense_reward_fn(outputs, tok_outputs, gt_answers, model_tok, require_end=False, *args, **kwargs)
-    #metrics["loose_dense_rewards"] = [sum(xs) for xs in loose_dense_rewards]
-    #self_consistency = self_consistent_reward_fn(outputs, tok_outputs, gt_answers, model_tok, *args, **kwargs)
-    #metrics["self_consistency"] = [abs(sum(xs)) for xs in self_consistency]
+    metrics.update(jsonl_to_dict(maj_1_reward_fn(outputs, gt_answers, benchmark=benchmark, *args, **kwargs)))
     if kwargs.get("num_return_sequences") is not None and kwargs["num_return_sequences"][0] > 1:
         num_return_sequences = kwargs["num_return_sequences"][0]
-        metrics["pass@n"] = pass_at_n_reward_fn(outputs, tok_outputs, gt_answers,  num_return_sequences)
-        metrics["maj@n"] = majority_vote_reward_fn(outputs, tok_outputs, gt_answers, num_return_sequences)
+        metrics.update(jsonl_to_dict(pass_n_reward_fn(outputs, gt_answers,  num_return_sequences)))
+        metrics.update(jsonl_to_dict(maj_n_reward_fn(outputs, gt_answers,  num_return_sequences)))
     if kwargs.get("save_file", None) is not None:
         return metrics, f"default_{kwargs.get('num_return_sequences')[0]}"
     else:
         return metrics
 
 
-def eval_metric_fn(outputs, tok_outputs, gt_answers, verdicts, *args, **kwargs):
+def eval_metric_fn(outputs, gt_answers, verdicts, K, solution_key, *args, **kwargs):
     metrics = {}
-    results = [eval(output, tok_output, gt_ans, verdict=verdict, mode="eval_gpt4_single_step_eval", *args, **kwargs) for output, tok_output, gt_ans, verdict in zip(outputs, tok_outputs, gt_answers, verdicts)]
-    gts = [res[1] for res in results]
-    predictions = [res[2] for res in results]
-    tp, fp, tn, fn = 0, 0, 0, 0
-    for gt, prediction in zip(gts, predictions):
-        if gt == 1 and prediction == 1:
-            tp += 1
-        elif gt == 1 and prediction == 0:
-            fn += 1
-        elif gt == 0 and prediction == 1:
-            fp += 1
-        else:
-            tn += 1
-    metrics["accuracy"] = [res[0] for res in results]
-    metrics["verdict_parse_fail_rate"] = verdict_parse_error / len(outputs)
-    metrics["final_answer_parse_fail_rate"] = final_answer_parse_error / len(outputs)
-    metrics["precision"] = tp / (tp + fp)
-    metrics["recall"] = tp / (tp + fn)
-    metrics["% correct verdict"] = (tp + fp) / len(outputs)
-    metrics["f1"] = metrics["precision"] * metrics["recall"] / (metrics["precision"] + metrics["recall"])
+    solution_key = solution_key[0]
+    K = K[0]
+    for i in range(1, K+1):
+        results = jsonl_to_dict([eval(output, gt_ans, verdict=verdict, loc=i, mode="eval_verifier", *args, **kwargs) for output, gt_ans, verdict in zip(kwargs.get(f"{solution_key}_{i}"), gt_answers, verdicts)])
+        gts = results["maj@1"]
+        predictions = results["verifier_score"]
+        tp, fp, tn, fn = 0, 0, 0, 0
+        for gt, prediction in zip(gts, predictions):
+            if gt == 1 and prediction == 1:
+                tp += 1
+            elif gt == 1 and prediction == 0:
+                fn += 1
+            elif gt == 0 and prediction == 1:
+                fp += 1
+            else:
+                tn += 1
+
+        metrics[f"accuracy_A{i}"] = results["eval_verifier"]
+        metrics[f"precision_A{i}"] = tp / (tp + fp)
+        metrics[f"recall_A{i}"] = tp / (tp + fn)
+        metrics[f"f1_A{i}"] = metrics[f"precision_A{i}"] * metrics[f"recall_A{i}"] / (metrics[f"precision_A{i}"] + metrics[f"recall_A{i}"])
+        metrics[f"maj@1_A{i}"] = gts
+        metrics[f"verifier_score_A{i}"] = predictions
+        metrics[f"final_answer_parse_error_A{i}"] = results["final_answer_parse_error"]
+        metrics[f"verdict_parse_error_A{i}"] = results["verdict_parse_error"]
     return metrics, ""
 
 
-def refinement_metric_fn(outputs, tok_outputs, gt_answers, *args, **kwargs):
+def refinement_metric_fn(outputs, gt_answers, *args, **kwargs):
+    assert False
+    # TODO(alex): Update after refactor
     metrics = {}  
     metrics["maj@1"] = eval_draft_refinement_reward_fn(outputs=outputs, gt_answers=gt_answers, *args, **kwargs)
     metrics["parse_fail_rate"] = final_answer_parse_error / len(outputs)
@@ -261,6 +250,7 @@ def run_eval(dataset_path,
              solution_key="model_answer",
              K=1,
              mode="default",
+             benchmark="gsm8k",
              dump_labeled_dataset=False,
             ):
     print(f"Computing metrics for {dataset_path}...")
@@ -282,9 +272,13 @@ def run_eval(dataset_path,
 
     def make_metric_fields(sample):
         sample["outputs"] = sample[solution_key]
+        if "model_answer_1" not in sample and "model_answer" in sample:
+            sample["model_answer_1"] = sample["model_answer"]
+        sample["solution_key"] = solution_key
         sample["tok_outputs"] = None
         sample["gt_answers"] = sample["answer"]
         sample["num_return_sequences"] = K
+        sample["K"] = K
         if mode == "eval":
             if "gpt4_single_step_eval" in sample:
                 sample["verdicts"] = sample["gpt4_single_step_eval"]
@@ -303,12 +297,13 @@ def run_eval(dataset_path,
     dataset = dataset.map(make_metric_fields)
     # Convert to dict and decode any encoded nested lists
     dataset = dataset.to_dict()
+    print("Dataset keys: ", dataset.keys())
     for k, v in dataset.items():
         if type(v[0]) is str and "<-1>" == v[0][:4]:
             # NOTE: For now just assuming dtype is always float
             dataset[k] = [decode_nested_lists(l, depth=0, dtype=float) for l in v]
 
-    stats, metric_save_file = metric_fn(**dataset, save_file="")
+    stats, metric_save_file = metric_fn(benchmark=benchmark, **dataset, save_file="")
     results = mean_acc_aggregate_fn(stats)
     print(f"Evaluating {dataset_path}...")
     print(json.dumps(results, indent=2))
@@ -334,6 +329,7 @@ if __name__ == "__main__":
     parser.add_argument("--end", default=None, type=int)
     parser.add_argument("--K", default=1, type=int, help="Number of candidate answers to rerank")
     parser.add_argument("--mode", default="default")
+    parser.add_argument("--benchmark", default="gsm8k")
     parser.add_argument("--dump_labeled_dataset", action="store_true")
     args = parser.parse_args()
 
