@@ -11,13 +11,6 @@ Then use your reasoning at each step to decide on correctness of the final answe
 Do not give your final verdict until AFTER any justification. Give arguments for both why the solution may be correct and why it may be incorrect. \
 Then give your final verdict.\n\n\
 {prompt}{model_answer}",
-    "eval_gsm8k_two_sol": "You will be shown multiple candidate solutions to a math question and \
-must decide which are Correct or Incorrect. You are encouraged to compare and contrast both to improve your decision. Do NOT use code. \
-Do not give your final verdict until after any justification. \
-For your final verdict for A1 write 'Final Verdict A1: ' and similarly for A2.\n\n\
-{prompt}\n\n\
-A1: {model_answer_1}\n\n\
-A2: {model_answer_2}",
     "eval_gsm8k_ref_sol": "Is the following final answer to the question correct? \
 You will be given an accompanying reference solution to use. Do not use code. \
 Do not give your final verdict until after any justification.\
@@ -39,6 +32,13 @@ For your final verdict for A1 write 'Final Verdict A1: ' and similarly for A2.\n
 {prompt}\n\n\
 A1: {model_answer}\n\n\
 A2: {refinement}",
+    "eval_gsm8k_two_sol": "You will be shown multiple candidate solutions to a math question and \
+must decide which are Correct or Incorrect. You are encouraged to compare and contrast both to improve your decision. Do NOT use code. \
+Do not give your final verdict until after any justification. \
+For your final verdict for A1 write 'Final Verdict A1: ' and similarly for A2.\n\n\
+{prompt}\n\n\
+A1: {model_answer_1}\n\n\
+A2: {model_answer_2}",
     "eval_gsm8k_three_sol": "You will be shown multiple candidate solutions to a math question and \
 must decide which are Correct or Incorrect. You are encouraged to compare and contrast both to improve your decision. Do NOT use code. \
 Do not give your final verdict until after any justification. \
@@ -47,4 +47,14 @@ For your final verdict for A1 write 'Final Verdict A1: ' and similarly for A2, A
 A1: {model_answer_1}\n\n\
 A2: {model_answer_2}\n\n\
 A3: {model_answer_3}",
+    "eval_rerank_five_sol": "You will be shown multiple candidate solutions to a math question and \
+must decide which is most likely to be correct. You are encouraged to compare and contrast both to improve your decision. Do NOT use code. \
+Do not give your final verdict until after any justification. \
+For your final verdict write 'Final Verdict:  A1' if you think A1 is most likely to be correct or similarly for A2, A3.\n\n\
+{prompt}\n\n\
+A1: {model_answer_1}\n\n\
+A2: {model_answer_2}\n\n\
+A3: {model_answer_3}\n\n\
+A4: {model_answer_4}\n\n\
+A5: {model_answer_5}",
 }

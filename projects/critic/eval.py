@@ -24,10 +24,10 @@ import numpy as np
 
 #####Some helper functions#####
 
-def check_equals(n1, n2):
+def check_equals(n1, n2, eps=1e-3):
     """Check if two string numbers are equal"""
     try:
-        return int(float(sympy.simplify(n1)) == float(sympy.simplify(n2)))
+        return int(np.abs(float(sympy.simplify(n1)) - float(sympy.simplify(n2))) < eps)
     except:
         return int(n1 == n2)
 
@@ -44,7 +44,6 @@ def get_clean_final_answer(answer, benchmark):
         final_answer = get_gsm8k_final_answer(answer)
         results["final_answer"], results["final_answer_parse_error"] = clean_gsm8k_final_answer(final_answer)
     elif benchmark.lower() == "math":
-        print("MATH INPUT: ", answer)
         final_answer = get_math_final_answer(answer)
         results["final_answer"], results["final_answer_parse_error"] = clean_math_final_answer(final_answer)
     else:
@@ -61,20 +60,25 @@ def maj_1(model_final_answer, gt_final_answer):
 def pass_n(model_final_answers, gt_final_answer):
     return max([float(check_equals(mfa, gt_final_answer)) for mfa in model_final_answers])
 
-def maj_n(model_final_answers, gt_final_answer):
+def maj_n(model_final_answers, gt_final_answer, return_chosen=False):
     counts = {}
+    # TODO(alex): fix error where 70 and 70.0 likely get counted as two separate answers
     maj_ans = model_final_answers[0]
     for mfa in model_final_answers:
         counts[mfa] = 0 if counts.get(mfa) is None else 1 + counts.get(mfa)
         maj_ans = maj_ans if counts[mfa] < counts[maj_ans] else mfa
-    return float(check_equals(maj_ans, gt_final_answer))
+    score = float(check_equals(maj_ans, gt_final_answer))
+    if return_chosen:
+        return score, maj_ans
+    else:
+        return score
 
 # NOTE: This could (should) be subsumed by a reranking evaluator 
 def eval_draft_refinement(gt_fa, draft_fa, refinement_fa, draft_score, refinement_score):
     chosen_fa = draft_fa if draft_score >= refinement_score else refinement_fa
     return maj_1(chosen_fa, gt_fa)
 
-def eval(model_answers : Union[str, List[str]], gt_answer : str, mode : str = "sparse_heuristic", benchmark="gsm8k", *args, **kwargs) -> int:
+def eval(model_answers : Union[str, List[str]], gt_answer : str, mode : str = "maj@1", benchmark="gsm8k", *args, **kwargs) -> int:
     results = {}
     gt_final_answer, results["gt_parse_error"] = get_clean_final_answer(answer=gt_answer, benchmark=benchmark).values()
     if type(model_answers) is list:
@@ -88,7 +92,10 @@ def eval(model_answers : Union[str, List[str]], gt_answer : str, mode : str = "s
     elif mode == "pass@n":
         results["pass@n"] = pass_n(model_final_answers, gt_final_answer)
     elif mode == "maj@n":
-        results["maj@n"] = maj_n(model_final_answers, gt_final_answer)
+        if kwargs.get("return_chosen"):
+            results["maj@n"], results["chosen_maj"] = maj_n(model_final_answers, gt_final_answer, return_chosen=kwargs.get("return_chosen"))
+        else:
+            results["maj@n"] = maj_n(model_final_answers, gt_final_answer, return_chosen=kwargs.get("return_chosen"))
     elif mode == "eval_verifier":
         score = maj_1(model_final_answer, gt_final_answer)
         results["maj@1"] = score
@@ -108,6 +115,7 @@ def eval(model_answers : Union[str, List[str]], gt_answer : str, mode : str = "s
         results["verifier_score"] = eval_score
         results["eval_verifier"] = int(score == eval_score)
     elif mode == "refinement":
+        assert False
         draft_fa = model_final_answer
         refinement_fa = get_clean_final_answer((kwargs.get("refinement")))
         score = eval_draft_refinement(gt_fa=gt_final_answer, 
@@ -115,6 +123,27 @@ def eval(model_answers : Union[str, List[str]], gt_answer : str, mode : str = "s
                                       refinement_fa=refinement_fa,
                                       draft_score=kwargs.get("draft_score"),
                                       refinement_score=kwargs.get("refinement_score"),)
+    elif mode == "rerank":
+        chosen_answer = kwargs["verdict"]
+        try:
+            #chosen_answer = re.match(r"Final Verdict: A(\d+)", chosen_answer).group(1)
+            chosen_answer = re.split(r"[ ,]", chosen_answer.split("Final Verdict: ")[-1])[0][1:]
+            chosen_answer = int(chosen_answer)
+            chosen_answer = kwargs[f"model_answer_{chosen_answer}"]
+            results["verdict_parse_error"] = 0
+        except Exception as e:
+            #print(e)
+            #print(chosen_answer)
+            #exit()
+            chosen_answer = ""
+            results["verdict_parse_error"] = 1
+        model_final_answer, results["final_answer_parse_error"] = get_clean_final_answer(chosen_answer, benchmark=benchmark).values()
+        results["rerank@n"] = maj_1(model_final_answer, gt_final_answer)
+        # Compute maj@n baseline
+        model_answers = [kwargs[k] for k in kwargs if "model_answer_" in k]
+        maj_results = eval(model_answers=model_answers, gt_answer=gt_answer, mode="maj@n", benchmark=benchmark, return_chosen=True)
+        results["maj@n"] = maj_results["maj@n"]
+        results["rerank_maj_agreement"] = check_equals(model_final_answer, maj_results["chosen_maj"])
     else:
         raise ValueError(f"Unsupported evaluation model {mode}!")
     return results
@@ -149,6 +178,25 @@ def maj_n_reward_fn(outputs, gt_answers, num_return_sequences, benchmark="gsm8k"
     # Return a score for each output, gt_answer pair (note this will be redundant num_return_sequences times)
     return scores
 
+def rerank_n_reward_fn(outputs, gt_answers, benchmark="gsm8k", *args, **kwargs):
+    scores = []
+    # Construct input arguments to eval
+    for i, gt_answer in enumerate(gt_answers):
+        print(f"Sample {i} of ", len(gt_answers))
+        args = {
+                "model_answers": outputs[i], 
+                "gt_answer": gt_answer, 
+                "mode": "rerank",
+                "benchmark": benchmark,
+                "verdict": kwargs["verdicts"][i]
+               }
+        for k in kwargs:
+            if "model_answer_" in k:
+                args[k] = kwargs[k][i]
+        score = eval(**args)
+        scores.append(score)
+    return scores
+
 def eval_draft_refinement_reward_fn(outputs, refinements, gt_answers, draft_scores, refinement_scores, benchmark="gsm8k", *args, **kwargs):
     return [eval(model_answers=draft,
                  tok_outputs=None,
@@ -175,12 +223,12 @@ def extract_response(output, i):
 
 
 def default_metric_fn(outputs, gt_answers, benchmark, *args, **kwargs):
-    metrics = {}  
+    metrics = {}
     metrics.update(jsonl_to_dict(maj_1_reward_fn(outputs, gt_answers, benchmark=benchmark, *args, **kwargs)))
     if kwargs.get("num_return_sequences") is not None and kwargs["num_return_sequences"][0] > 1:
         num_return_sequences = kwargs["num_return_sequences"][0]
-        metrics.update(jsonl_to_dict(pass_n_reward_fn(outputs, gt_answers,  num_return_sequences)))
-        metrics.update(jsonl_to_dict(maj_n_reward_fn(outputs, gt_answers,  num_return_sequences)))
+        metrics.update(jsonl_to_dict(pass_n_reward_fn(outputs, gt_answers, benchmark=benchmark, num_return_sequences=num_return_sequences)))
+        metrics.update(jsonl_to_dict(maj_n_reward_fn(outputs, gt_answers, benchmark=benchmark, num_return_sequences=num_return_sequences)))
     if kwargs.get("save_file", None) is not None:
         return metrics, f"default_{kwargs.get('num_return_sequences')[0]}"
     else:
@@ -217,12 +265,17 @@ def eval_metric_fn(outputs, gt_answers, verdicts, K, solution_key, *args, **kwar
     return metrics, ""
 
 
-def refinement_metric_fn(outputs, gt_answers, *args, **kwargs):
+def refinement_metric_fn(outputs, gt_answers, benchmark, *args, **kwargs):
     assert False
     # TODO(alex): Update after refactor
     metrics = {}  
     metrics["maj@1"] = eval_draft_refinement_reward_fn(outputs=outputs, gt_answers=gt_answers, *args, **kwargs)
     metrics["parse_fail_rate"] = final_answer_parse_error / len(outputs)
+    return metrics, ""
+
+
+def rerank_metric_fn(outputs, gt_answers, benchmark, *args, **kwargs):
+    metrics = jsonl_to_dict(rerank_n_reward_fn(outputs, gt_answers, benchmark, *args, **kwargs))
     return metrics, ""
 
 
@@ -233,6 +286,8 @@ def get_metric_fn(metric_name):
         return refinement_metric_fn
     elif metric_name == "eval":
         return eval_metric_fn
+    elif metric_name == "rerank":
+        return rerank_metric_fn
     else:
         raise ValueError(f"Unknown metric name {metric_name}!!!")
 
@@ -279,7 +334,7 @@ def run_eval(dataset_path,
         sample["gt_answers"] = sample["answer"]
         sample["num_return_sequences"] = K
         sample["K"] = K
-        if mode == "eval":
+        if mode == "eval" or mode == "rerank":
             if "gpt4_single_step_eval" in sample:
                 sample["verdicts"] = sample["gpt4_single_step_eval"]
             elif "gpt4_step_by_step_eval" in sample:
@@ -312,7 +367,7 @@ def run_eval(dataset_path,
     save_file = f"{save_file}_{metric_save_file}"
 
     with open(f"results/{save_file}.json", "w") as f:
-        json.dump(results, f)
+        json.dump(results, f, indent=2)
 
     if dump_labeled_dataset:
         for key, stat in stats.items():
@@ -322,14 +377,16 @@ def run_eval(dataset_path,
     return results
 
 if __name__ == "__main__":
-    #### CLI utilities to evaluate offline datasets ####
+    """ CLI utilities to evaluate offline datasets 
+    Usage: python eval.py --dataset_path rollouts/gpt_3.5_turbo_math_five_sample.jsonl --K 5 --benchmark math --mode default
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset_path", type=str)
     parser.add_argument("--solution_key", default="model_answer", help="Key in dataset to model answers")
     parser.add_argument("--end", default=None, type=int)
     parser.add_argument("--K", default=1, type=int, help="Number of candidate answers to rerank")
-    parser.add_argument("--mode", default="default")
-    parser.add_argument("--benchmark", default="gsm8k")
+    parser.add_argument("--mode", default="default", choices=["default", "eval", "rerank", "refinement"])
+    parser.add_argument("--benchmark", default="gsm8k", choices=["gsm8k", "math"])
     parser.add_argument("--dump_labeled_dataset", action="store_true")
     args = parser.parse_args()
 

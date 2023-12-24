@@ -1,7 +1,11 @@
 from prompts import prompts
 from utils import load_jsonl, dump_jsonl, group_by_prompt
-from eval import get_final_answer, clean_final_answer, eval
+from eval import get_clean_final_answer, eval
 import random
+from collections import defaultdict
+import argparse
+from tqdm import tqdm
+
 
 def t1():
     example = {
@@ -117,19 +121,88 @@ def prepare_refinement_for_eval():
     dump_jsonl(dataset, "rollouts/gpt_3.5_turbo_gsm8k_eval_draft_refine.jsonl")
 
 
-def create_multi_sample_dataset():
-    sample_data = load_jsonl("rollouts/gpt_3.5_turbo_gsm8k_sampled.jsonl")
-    grouped_sample_data = group_by_prompt(sample_data, key="prompt")
-    new_dataset = []
-    for samples in grouped_sample_data.values():
-        sample = {k: samples[k][0] for k in samples}
-        for i, answer in enumerate(samples["model_answer"]):
-            sample[f"model_answer_{i+1}"] = answer
-        if len(samples["model_answer"]) == 3:
-            new_dataset.append(sample)
 
-    dump_jsonl(new_dataset, "rollouts/gpt_3.5_turbo_gsm8k_multi_sample_3.jsonl")
+def choose_samples(samples, gt, num, mode, benchmark):
+    if num == 0:
+        return []
+    if mode == "default":
+        chosen_samples = samples
+    if mode == "diverse":
+        fas = [get_clean_final_answer(answer=answer, benchmark=benchmark)["final_answer"] for answer in samples]
+        score_map = defaultdict(list)
+        for answer, fa in zip(samples, fas):
+            score_map[fa].append(answer)
+        chosen_samples = []
+        while len(score_map) > 0:
+            to_remove = []
+            for key in score_map:
+                chosen_samples.append(score_map[key].pop(0))
+                if len(score_map[key]) == 0:
+                    to_remove.append(key)
+            [score_map.pop(key) for key in to_remove]
+    elif mode == "correctness_balance":
+        scores = [eval(model_answers=answer, gt_answer=gt, benchmark=benchmark) for answer in samples]
+        correct_samples = [sample for sample, score in zip(samples, scores) if score == 1]
+        incorrect_samples = [sample for sample, score in zip(samples, scores) if score == 0]
+        chosen_samples = []
+        while len(chosen_samples) < num and len(correct_samples) > 0 and len(incorrect_samples) > 0:
+            chosen_samples.append(correct_samples.pop(0))
+            chosen_samples.append(incorrect_samples.pop(0))
+        chosen_samples += choose_samples(correct_samples + incorrect_samples, gt, num - len(chosen_samples), mode="diverse", benchmark=benchmark)
+    else:
+        raise ValueError(f"Unknown mode: {mode}!!!")
+    chosen_samples = chosen_samples[:num]
+    random.shuffle(chosen_samples)
+    return chosen_samples
+
+
+def create_multi_sample_dataset(dataset_path, num_samples, mode, benchmark):
+    sample_data = load_jsonl(dataset_path)
+    print("Old dataset len: ", len(sample_data))
+    grouped_sample_data = group_by_prompt(sample_data, key="prompt")
+    print("Num groups: ", len(grouped_sample_data))
+    new_dataset = []
+    for samples in tqdm(grouped_sample_data.values()):
+        sample = {k: samples[k][0] for k in samples}
+        chosen_samples = choose_samples(samples=samples["model_answer"], gt=samples["answer"][0], num=num_samples, mode=mode, benchmark=benchmark)
+        for i, answer in enumerate(chosen_samples):
+            sample[f"model_answer_{i+1}"] = answer
+        if len(chosen_samples) == num_samples:
+            new_dataset.append(sample)
+        else:
+            print("Len chosen samples: ", len(chosen_samples), "num samples: ", num_samples)
+
+    file_name = f"rollouts/gpt_3.5_turbo_{benchmark}_multi_sample_{num_samples}_{mode}.jsonl"
+    print(f"Dumping new dataset at {file_name}")
+    dump_jsonl(new_dataset, file_name)
     print("New dataset len: ", len(new_dataset))
 
+
+def filter_no_answer(dataset_path, benchmark, **kwargs):
+    dataset = load_jsonl(dataset_path)
+    new_dataset = []
+    for sample in dataset:
+        pass_n_score = eval(model_answers=[sample[k] for k in sample if "model_answer_" in k],
+                     gt_answer=sample["answer"],
+                     benchmark=benchmark,
+                     mode="pass@n",)["pass@n"]
+        if pass_n_score:
+            new_dataset.append(sample)
+    dataset_path = dataset_path.split(".jsonl")[0]
+    dump_jsonl(new_dataset, f"{dataset_path}_filtered_no_answer.jsonl")
+
+
 if __name__ == "__main__":
-    create_multi_sample_dataset()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dataset_path", type=str)
+    parser.add_argument("--num_samples", default=2, type=int)
+    parser.add_argument("--mode", default="default", choices=["default", "diverse", "correctness_balance"])
+    parser.add_argument("--benchmark", default="math", choices=["gsm8k", "math"])
+
+    args = parser.parse_args()
+
+    filter_no_answer(**vars(args))
+    #create_multi_sample_dataset(**vars(args))
+
+
+# "rollouts/gpt_3.5_turbo_math_five_sample.jsonl"
