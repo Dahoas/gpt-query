@@ -4,6 +4,7 @@ import re
 import json
 import os
 import argparse
+from collections import defaultdict
 
 from utils import (load_jsonl, 
                    group_by_prompt, 
@@ -13,10 +14,12 @@ from utils import (load_jsonl,
                    get_first_key,
                    dump_jsonl,
                    dict_to_jsonl,
-                   jsonl_to_dict,)
+                   jsonl_to_dict,
+                   split,
+                   classify_error_type)
 
-from eval_gsm8k import get_gsm8k_final_answer, clean_gsm8k_final_answer
-from eval_math import get_math_final_answer, clean_math_final_answer
+from eval_gsm8k import get_gsm8k_final_answer, clean_gsm8k_final_answer, gsm8k_check_equals
+from eval_math import get_math_final_answer, clean_math_final_answer, math_check_equals
 
 from datasets import Dataset
 import numpy as np
@@ -24,18 +27,14 @@ import numpy as np
 
 #####Some helper functions#####
 
-def check_equals(n1, n2, eps=1e-3):
-    """Check if two string numbers are equal"""
-    try:
-        return int(np.abs(float(sympy.simplify(n1)) - float(sympy.simplify(n2))) < eps)
-    except:
-        return int(n1 == n2)
-
-
-def split(l, n):
-    """Split list l into chunks of size (at most) n"""
-    num_chunks = (len(l) + n - 1) // n
-    return [l[i*n : (i+1)*n] for i in range(num_chunks)]
+def check_equals(a1, a2, benchmark):
+    if benchmark.lower() == "gsm8k":
+        result = gsm8k_check_equals(a1, a2)
+    elif benchmark.lower() == "math":
+        result = math_check_equals(a1, a2)
+    else:
+        raise ValueError(f"Unknown benchmark: {benchmark}!!!")
+    return result
 
 
 def get_clean_final_answer(answer, benchmark):
@@ -54,20 +53,20 @@ def get_clean_final_answer(answer, benchmark):
 #####Eval functions#####
 # Evaluate single question single/multiple answer formats
 
-def maj_1(model_final_answer, gt_final_answer):
-    return float(check_equals(model_final_answer, gt_final_answer))
+def maj_1(model_final_answer, gt_final_answer, benchmark):
+    return float(check_equals(model_final_answer, gt_final_answer, benchmark))
 
-def pass_n(model_final_answers, gt_final_answer):
-    return max([float(check_equals(mfa, gt_final_answer)) for mfa in model_final_answers])
+def pass_n(model_final_answers, gt_final_answer, benchmark):
+    return max([float(check_equals(mfa, gt_final_answer, benchmark)) for mfa in model_final_answers])
 
-def maj_n(model_final_answers, gt_final_answer, return_chosen=False):
+def maj_n(model_final_answers, gt_final_answer, benchmark, return_chosen=False):
     counts = {}
     # TODO(alex): fix error where 70 and 70.0 likely get counted as two separate answers
     maj_ans = model_final_answers[0]
     for mfa in model_final_answers:
         counts[mfa] = 0 if counts.get(mfa) is None else 1 + counts.get(mfa)
         maj_ans = maj_ans if counts[mfa] < counts[maj_ans] else mfa
-    score = float(check_equals(maj_ans, gt_final_answer))
+    score = float(check_equals(maj_ans, gt_final_answer, benchmark))
     if return_chosen:
         return score, maj_ans
     else:
@@ -79,7 +78,7 @@ def eval_draft_refinement(gt_fa, draft_fa, refinement_fa, draft_score, refinemen
     return maj_1(chosen_fa, gt_fa)
 
 def eval(model_answers : Union[str, List[str]], gt_answer : str, mode : str = "maj@1", benchmark="gsm8k", *args, **kwargs) -> int:
-    results = {}
+    results = defaultdict(int)
     gt_final_answer, results["gt_parse_error"] = get_clean_final_answer(answer=gt_answer, benchmark=benchmark).values()
     if type(model_answers) is list:
         model_final_answers, final_answer_parse_error = jsonl_to_dict([get_clean_final_answer(model_answer, benchmark=benchmark) for model_answer in model_answers]).values()
@@ -88,24 +87,24 @@ def eval(model_answers : Union[str, List[str]], gt_answer : str, mode : str = "m
     results["final_answer_parse_error"] = np.sum(final_answer_parse_error)
 
     if mode == "maj@1":
-        results["maj@1"] = maj_1(model_final_answer, gt_final_answer)
+        results["maj@1"] = maj_1(model_final_answer, gt_final_answer, benchmark)
     elif mode == "pass@n":
-        results["pass@n"] = pass_n(model_final_answers, gt_final_answer)
+        results["pass@n"] = pass_n(model_final_answers, gt_final_answer, benchmark)
     elif mode == "maj@n":
         if kwargs.get("return_chosen"):
-            results["maj@n"], results["chosen_maj"] = maj_n(model_final_answers, gt_final_answer, return_chosen=kwargs.get("return_chosen"))
+            results["maj@n"], results["chosen_maj"] = maj_n(model_final_answers, gt_final_answer, benchmark, return_chosen=kwargs.get("return_chosen"))
         else:
-            results["maj@n"] = maj_n(model_final_answers, gt_final_answer, return_chosen=kwargs.get("return_chosen"))
+            results["maj@n"] = maj_n(model_final_answers, gt_final_answer, benchmark, return_chosen=kwargs.get("return_chosen"))
     elif mode == "eval_verifier":
-        score = maj_1(model_final_answer, gt_final_answer)
+        score = maj_1(model_final_answer, gt_final_answer, benchmark)
         results["maj@1"] = score
         results["verdict_parse_error"] = 0
         eval_score = kwargs.get("verdict")
         loc = kwargs.get("loc")
-        eval_score = re.split(f"Final Verdict( A{loc})?: ", eval_score)[-1].split("\n")[0].strip()
-        if eval_score.lower() == "yes" or eval_score.lower() == "correct":
+        eval_score = re.split(f"((Final Verdict)?(FV)?)( A{loc})?: ", eval_score)[-1].split("\n")[0].strip()
+        if eval_score.lower() == "yes" or eval_score.lower() == "correct" or eval_score.lower() == "positive":
             eval_score = 1
-        elif eval_score.lower() == "no" or eval_score.lower() == "incorrect":
+        elif eval_score.lower() == "no" or eval_score.lower() == "incorrect" or eval_score.lower() == "negative":
             eval_score = 0
         else:
             print(f"Eval verdict is unknown: {eval_score}!!!")
@@ -114,6 +113,31 @@ def eval(model_answers : Union[str, List[str]], gt_answer : str, mode : str = "m
             eval_score = 0
         results["verifier_score"] = eval_score
         results["eval_verifier"] = int(score == eval_score)
+    elif mode == "eval_dense_verifier":
+        gt_step_labels = list(map(int, kwargs.get("gt_step_labels")))
+        convert = defaultdict(lambda: "error", dict(positive=1, neutral=1, negative=0))  # NOTE: giving 'neutral' score of 1
+        gt_step_labels  = [1 if step == 0 else 0 if step == -1 else step for step in gt_step_labels]  # NOTE: giving 'neutral' score of 1
+        # Extract intermediate step scores from model output
+        if "IV: " in kwargs.get("verdict"):
+            model_step_labels = kwargs.get("verdict").split("IV: ")[1:]
+            model_step_labels = [convert[step.split("\n")[0]] for step in model_step_labels]
+            model_step_labels = model_step_labels[:len(gt_step_labels)]
+        else:
+            model_step_labels = len(gt_step_labels) * ["error"]
+        results["verdict_parse_errors"] = [1 if step == "error" else 0 for step in model_step_labels]
+        # Compute first error prediction accuracy
+        # NOTE: np.argmin([1, 1, "error", 0]) == 3
+        # Also note gt_step_labels are guanrateed to have 0 for all steps following the first error
+        gt_first_error_loc = np.argmin(gt_step_labels) if 0 in gt_step_labels else len(gt_step_labels) - 1  
+        pred_first_error_loc = np.argmin(model_step_labels) if 0 in model_step_labels else len(model_step_labels) - 1
+        results["first_error_offset"] = pred_first_error_loc - gt_first_error_loc
+        # Now compute accuracy over all labels
+        # NOTE: Trim step labels by removing all steps after first incorrect step
+        # This is only done when computing accuracy over all labels
+        gt_step_labels = [step for i, step in enumerate(gt_step_labels) if i == 0 or gt_step_labels[i-1] == 1]
+        model_step_labels = model_step_labels[:len(gt_step_labels)]
+        results["step_scores"] = [classify_error_type(model_step, gt_step) for gt_step, model_step in zip(gt_step_labels, model_step_labels)]
+        
     elif mode == "refinement":
         assert False
         draft_fa = model_final_answer
@@ -143,7 +167,7 @@ def eval(model_answers : Union[str, List[str]], gt_answer : str, mode : str = "m
         model_answers = [kwargs[k] for k in kwargs if "model_answer_" in k]
         maj_results = eval(model_answers=model_answers, gt_answer=gt_answer, mode="maj@n", benchmark=benchmark, return_chosen=True)
         results["maj@n"] = maj_results["maj@n"]
-        results["rerank_maj_agreement"] = check_equals(model_final_answer, maj_results["chosen_maj"])
+        results["rerank_maj_agreement"] = check_equals(model_final_answer, maj_results["chosen_maj"], benchmark)
     else:
         raise ValueError(f"Unsupported evaluation model {mode}!")
     return results
@@ -257,11 +281,43 @@ def eval_metric_fn(outputs, gt_answers, verdicts, K, solution_key, *args, **kwar
         metrics[f"accuracy_A{i}"] = results["eval_verifier"]
         metrics[f"precision_A{i}"] = tp / (tp + fp)
         metrics[f"recall_A{i}"] = tp / (tp + fn)
-        metrics[f"f1_A{i}"] = metrics[f"precision_A{i}"] * metrics[f"recall_A{i}"] / (metrics[f"precision_A{i}"] + metrics[f"recall_A{i}"])
+        metrics[f"f1_A{i}"] = 2 * metrics[f"precision_A{i}"] * metrics[f"recall_A{i}"] / (metrics[f"precision_A{i}"] + metrics[f"recall_A{i}"])
         metrics[f"maj@1_A{i}"] = gts
         metrics[f"verifier_score_A{i}"] = predictions
         metrics[f"final_answer_parse_error_A{i}"] = results["final_answer_parse_error"]
         metrics[f"verdict_parse_error_A{i}"] = results["verdict_parse_error"]
+    return metrics, ""
+
+
+def eval_dense_metric_fn(outputs, gt_answers, verdict, step_labels, solution_key, *args, **kwargs):
+    metrics = {}
+    solution_key = solution_key[0]
+    results = jsonl_to_dict([eval(output, gt_ans, verdict=v, mode="eval_dense_verifier", gt_step_labels=step_label, *args, **kwargs) 
+                            for output, gt_ans, v, step_label in 
+                            zip(kwargs.get(f"{solution_key}"), gt_answers, verdict, step_labels)])
+
+    metrics["verdict_parse_errors"] = [np.mean(vpe) for vpe in results["verdict_parse_errors"]]
+    metrics["final_answer_parse_error"] = results["final_answer_parse_error"]
+    metrics["first_error_offset"] = results["first_error_offset"]
+    metrics["first_error_early"] = [offset < 0 for offset in results["first_error_offset"]]
+    metrics["first_error_late"] = [offset > 0 for offset in results["first_error_offset"]]
+    metrics["first_error_accuracy"] = [offset == 0 for offset in results["first_error_offset"]]
+    # Also gather metric information for first_error accuracies over
+    # the set of questions containing at least one error
+    metrics["incorrect_solution_first_error_offset"] = [offset if int(step_label[-1]) == -1 else None for step_label, offset in zip(step_labels, results["first_error_offset"])]
+    metrics["incorrect_solution_first_error_early"] = [offset < 0 if int(step_label[-1]) == -1 else None for step_label, offset in zip(step_labels, results["first_error_offset"])]
+    metrics["incorrect_solution_first_error_late"] = [offset > 0 if int(step_label[-1]) == -1 else None for step_label, offset in zip(step_labels, results["first_error_offset"])]
+    metrics["incorrect_solution_first_error_accuracy"] = [offset == 0 if int(step_label[-1]) == -1 else None for step_label, offset in zip(step_labels, results["first_error_offset"])]
+
+    def flatten_and_average(l):
+        return np.mean([ele for sub_l in l for ele in sub_l])
+    metrics["accuracy"] = flatten_and_average([[1 if l == "tp" or l == "tn" else 0 for l in labels] for labels in results["step_scores"]])
+    metrics["precision"] = flatten_and_average([[1 if l == "tp" else 0 for l in labels if l == "tp" or l == "fp"] for labels in results["step_scores"]])
+    metrics["recall"] = flatten_and_average([[1 if l == "tp" else 0 for l in labels if l == "tp" or l == "fn"] for labels in results["step_scores"]])
+    metrics["f1"] = 2 * metrics[f"precision"] * metrics[f"recall"] / (metrics[f"precision"] + metrics[f"recall"])
+    metrics["verifier_score"] = flatten_and_average([[1 if l == "tp" or l == "fp" else 0 for l in labels] for labels in results["step_scores"]])
+    metrics["class_balance"] = flatten_and_average([[1 if l == "tp" or l == "fn" else 0 for l in labels] for labels in results["step_scores"]])
+
     return metrics, ""
 
 
@@ -286,6 +342,8 @@ def get_metric_fn(metric_name):
         return refinement_metric_fn
     elif metric_name == "eval":
         return eval_metric_fn
+    elif metric_name == "eval_dense":
+        return eval_dense_metric_fn
     elif metric_name == "rerank":
         return rerank_metric_fn
     else:
@@ -294,13 +352,22 @@ def get_metric_fn(metric_name):
 #####Aggregation functions#####
 
 def mean_acc_aggregate_fn(stats):
-    """Used to aggregate stats from metric_fn. Just averages everything"""
-    var_means = {k: np.mean(v) for k, v in stats.items()}
-    return var_means
+    """
+    Used to aggregate stats via averaging from metric_fn.
+    Any entries with None are filtered out before computing the mean.
+    """
+    for k, v in stats.items():
+        print("--------")
+        print(k)
+        print(type(v))
+        if type(v) is list or type(v) is np.array:
+            print(len([s for s in v if s is not None]))
+    means = {k: np.mean([s for s in v if s is not None] if type(v) is list or type(v) is np.array else v) for k, v in stats.items()}
+    return means
 
 #####Runner#####
 
-def run_eval(dataset_path, 
+def run_eval(dataset_path,
              end=None,
              solution_key="model_answer",
              K=1,
@@ -355,8 +422,8 @@ def run_eval(dataset_path,
     print("Dataset keys: ", dataset.keys())
     for k, v in dataset.items():
         if type(v[0]) is str and "<-1>" == v[0][:4]:
-            # NOTE: For now just assuming dtype is always float
-            dataset[k] = [decode_nested_lists(l, depth=0, dtype=float) for l in v]
+            # NOTE: For now just assuming dtype of nested list is always float
+            dataset[k] = [decode_nested_lists(l, depth=0, dtype=str) for l in v]
 
     stats, metric_save_file = metric_fn(benchmark=benchmark, **dataset, save_file="")
     results = mean_acc_aggregate_fn(stats)
@@ -377,7 +444,8 @@ def run_eval(dataset_path,
     return results
 
 if __name__ == "__main__":
-    """ CLI utilities to evaluate offline datasets 
+    """ 
+    CLI utilities to evaluate offline datasets 
     Usage: python eval.py --dataset_path rollouts/gpt_3.5_turbo_math_five_sample.jsonl --K 5 --benchmark math --mode default
     """
     parser = argparse.ArgumentParser()
@@ -385,12 +453,9 @@ if __name__ == "__main__":
     parser.add_argument("--solution_key", default="model_answer", help="Key in dataset to model answers")
     parser.add_argument("--end", default=None, type=int)
     parser.add_argument("--K", default=1, type=int, help="Number of candidate answers to rerank")
-    parser.add_argument("--mode", default="default", choices=["default", "eval", "rerank", "refinement"])
+    parser.add_argument("--mode", default="default", choices=["default", "eval", "eval_dense", "rerank", "refinement"])
     parser.add_argument("--benchmark", default="gsm8k", choices=["gsm8k", "math"])
     parser.add_argument("--dump_labeled_dataset", action="store_true")
     args = parser.parse_args()
 
     run_eval(**vars(args))
-
-
-#llama2_7B_step_balanced_positive_params_noprop_positive_final_label_fully_consistent_negative_params_noprop_positive_final_label_fully_consistent_all_step_verified_K_60_sorm
