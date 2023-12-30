@@ -192,6 +192,22 @@ def filter_no_answer(dataset_path, benchmark, **kwargs):
     dump_jsonl(new_dataset, f"{dataset_path}_filtered_no_answer.jsonl")
 
 
+def update():
+    benchmark_path = "rollouts/filtered_math_prm_test_2_multi_sample.jsonl"
+    verifier_path = "old_rollouts/filtered_math_prm_test_2_multi_sample_eval_gpt_4_old.jsonl"
+
+    benchmark = load_jsonl(benchmark_path)
+    verifier = load_jsonl(verifier_path)
+    benchmark = {s["prompt"]: s for s in benchmark}
+    verifier = {s["prompt"]: s for s in verifier}
+
+    for prompt, sample in benchmark.items():
+        verifier_sample = verifier[prompt]
+        sample["verdict"] = verifier_sample["verdict"]
+
+    dump_jsonl(list(benchmark.values()), "filtered_math_prm_test_2_multi_sample_eval_gpt_4.jsonl")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset_path", type=str)
@@ -201,7 +217,8 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    filter_no_answer(**vars(args))
+    update()
+    #filter_no_answer(**vars(args))
     #create_multi_sample_dataset(**vars(args))
 
 

@@ -16,7 +16,9 @@ from utils import (load_jsonl,
                    dict_to_jsonl,
                    jsonl_to_dict,
                    split,
-                   classify_error_type)
+                   classify_error_type,
+                   fill_missing_values,
+                   get_base_dtype)
 
 from eval_gsm8k import get_gsm8k_final_answer, clean_gsm8k_final_answer, gsm8k_check_equals
 from eval_math import get_math_final_answer, clean_math_final_answer, math_check_equals
@@ -118,17 +120,33 @@ def eval(model_answers : Union[str, List[str]], gt_answer : str, mode : str = "m
         convert = defaultdict(lambda: "error", dict(positive=1, neutral=1, negative=0))  # NOTE: giving 'neutral' score of 1
         gt_step_labels  = [1 if step == 0 else 0 if step == -1 else step for step in gt_step_labels]  # NOTE: giving 'neutral' score of 1
         # Extract intermediate step scores from model output
-        if "IV: " in kwargs.get("verdict"):
-            model_step_labels = kwargs.get("verdict").split("IV: ")[1:]
-            model_step_labels = [convert[step.split("\n")[0]] for step in model_step_labels]
+        if True:
+            loc = kwargs.get("loc")
+            try:
+                model_step_labels = re.split(r"A\d+:", kwargs.get("verdict"))[loc] if loc else kwargs.get("verdict")
+            except IndexError:
+                model_step_labels = re.split(r"A\d+:", kwargs.get("verdict"))[-1]
+            #print("-------------")
+            #print(model_step_labels)
+            model_step_labels = re.findall(r"IV\d*: (\w+)", model_step_labels)
+            #model_step_labels = re.split(r"IV\d*:", model_step_labels)[1:]
+            #print("-------------")
+            #print(model_step_labels)
+            model_step_labels = [convert[step] for step in model_step_labels]
             model_step_labels = model_step_labels[:len(gt_step_labels)]
+            #print("-------------")
+            #print(model_step_labels)
+            #exit()
         else:
+        #except Exception as e:
+            print(e)
+            exit()
             model_step_labels = len(gt_step_labels) * ["error"]
         results["verdict_parse_errors"] = [1 if step == "error" else 0 for step in model_step_labels]
         # Compute first error prediction accuracy
         # NOTE: np.argmin([1, 1, "error", 0]) == 3
         # Also note gt_step_labels are guanrateed to have 0 for all steps following the first error
-        gt_first_error_loc = np.argmin(gt_step_labels) if 0 in gt_step_labels else len(gt_step_labels) - 1  
+        gt_first_error_loc = np.argmin(gt_step_labels) if 0 in gt_step_labels else len(gt_step_labels) - 1
         pred_first_error_loc = np.argmin(model_step_labels) if 0 in model_step_labels else len(model_step_labels) - 1
         results["first_error_offset"] = pred_first_error_loc - gt_first_error_loc
         # Now compute accuracy over all labels
@@ -259,12 +277,12 @@ def default_metric_fn(outputs, gt_answers, benchmark, *args, **kwargs):
         return metrics
 
 
-def eval_metric_fn(outputs, gt_answers, verdicts, K, solution_key, *args, **kwargs):
+def eval_metric_fn(outputs, gt_answers, verdicts, K, model_answer_key, *args, **kwargs):
     metrics = {}
-    solution_key = solution_key[0]
+    model_answer_key = model_answer_key[0]
     K = K[0]
     for i in range(1, K+1):
-        results = jsonl_to_dict([eval(output, gt_ans, verdict=verdict, loc=i, mode="eval_verifier", *args, **kwargs) for output, gt_ans, verdict in zip(kwargs.get(f"{solution_key}_{i}"), gt_answers, verdicts)])
+        results = jsonl_to_dict([eval(output, gt_ans, verdict=verdict, loc=i, mode="eval_verifier", *args, **kwargs) for output, gt_ans, verdict in zip(kwargs.get(f"{model_answer_key}_{i}"), gt_answers, verdicts)])
         gts = results["maj@1"]
         predictions = results["verifier_score"]
         tp, fp, tn, fn = 0, 0, 0, 0
@@ -289,34 +307,48 @@ def eval_metric_fn(outputs, gt_answers, verdicts, K, solution_key, *args, **kwar
     return metrics, ""
 
 
-def eval_dense_metric_fn(outputs, gt_answers, verdict, step_labels, solution_key, *args, **kwargs):
+def eval_dense_metric_fn(outputs, 
+                         gt_answers, 
+                         verdict, 
+                         model_answer_key, 
+                         K, 
+                         *args, 
+                         **kwargs):
     metrics = {}
-    solution_key = solution_key[0]
-    results = jsonl_to_dict([eval(output, gt_ans, verdict=v, mode="eval_dense_verifier", gt_step_labels=step_label, *args, **kwargs) 
+    model_answer_key = model_answer_key[0]
+    K = K[0]
+    for j in range(1, K+1):
+        step_labels = kwargs.get(f"step_labels_{j}")
+        results = jsonl_to_dict([eval(output, 
+                                      gt_ans, 
+                                      verdict=v, 
+                                      mode="eval_dense_verifier", 
+                                      gt_step_labels=step_label, 
+                                      loc=j if K > 1 else 0,  # NOTE: pass j only when K > 1 to handle single sample format
+                                      *args, **kwargs) 
                             for output, gt_ans, v, step_label in 
-                            zip(kwargs.get(f"{solution_key}"), gt_answers, verdict, step_labels)])
+                            zip(kwargs.get(f"{model_answer_key}_{j}"), gt_answers, verdict, step_labels)])
+        metrics[f"verdict_parse_errors_{j}"] = [np.mean(vpe) for vpe in results["verdict_parse_errors"]]
+        metrics[f"final_answer_parse_error_{j}"] = results["final_answer_parse_error"]
+        metrics[f"first_error_offset_{j}"] = results["first_error_offset"]
+        metrics[f"first_error_early_{j}"] = [offset < 0 for offset in results["first_error_offset"]]
+        metrics[f"first_error_late_{j}"] = [offset > 0 for offset in results["first_error_offset"]]
+        metrics[f"first_error_accuracy_{j}"] = [offset == 0 for offset in results["first_error_offset"]]
+        # Also gather metric information for first_error accuracies over
+        # the set of questions containing at least one error
+        metrics[f"incorrect_solution_first_error_offset_{j}"] = [offset if int(step_label[-1]) == -1 else None for step_label, offset in zip(step_labels, results["first_error_offset"])]
+        metrics[f"incorrect_solution_first_error_early_{j}"] = [offset < 0 if int(step_label[-1]) == -1 else None for step_label, offset in zip(step_labels, results["first_error_offset"])]
+        metrics[f"incorrect_solution_first_error_late_{j}"] = [offset > 0 if int(step_label[-1]) == -1 else None for step_label, offset in zip(step_labels, results["first_error_offset"])]
+        metrics[f"incorrect_solution_first_error_accuracy_{j}"] = [offset == 0 if int(step_label[-1]) == -1 else None for step_label, offset in zip(step_labels, results["first_error_offset"])]
 
-    metrics["verdict_parse_errors"] = [np.mean(vpe) for vpe in results["verdict_parse_errors"]]
-    metrics["final_answer_parse_error"] = results["final_answer_parse_error"]
-    metrics["first_error_offset"] = results["first_error_offset"]
-    metrics["first_error_early"] = [offset < 0 for offset in results["first_error_offset"]]
-    metrics["first_error_late"] = [offset > 0 for offset in results["first_error_offset"]]
-    metrics["first_error_accuracy"] = [offset == 0 for offset in results["first_error_offset"]]
-    # Also gather metric information for first_error accuracies over
-    # the set of questions containing at least one error
-    metrics["incorrect_solution_first_error_offset"] = [offset if int(step_label[-1]) == -1 else None for step_label, offset in zip(step_labels, results["first_error_offset"])]
-    metrics["incorrect_solution_first_error_early"] = [offset < 0 if int(step_label[-1]) == -1 else None for step_label, offset in zip(step_labels, results["first_error_offset"])]
-    metrics["incorrect_solution_first_error_late"] = [offset > 0 if int(step_label[-1]) == -1 else None for step_label, offset in zip(step_labels, results["first_error_offset"])]
-    metrics["incorrect_solution_first_error_accuracy"] = [offset == 0 if int(step_label[-1]) == -1 else None for step_label, offset in zip(step_labels, results["first_error_offset"])]
-
-    def flatten_and_average(l):
-        return np.mean([ele for sub_l in l for ele in sub_l])
-    metrics["accuracy"] = flatten_and_average([[1 if l == "tp" or l == "tn" else 0 for l in labels] for labels in results["step_scores"]])
-    metrics["precision"] = flatten_and_average([[1 if l == "tp" else 0 for l in labels if l == "tp" or l == "fp"] for labels in results["step_scores"]])
-    metrics["recall"] = flatten_and_average([[1 if l == "tp" else 0 for l in labels if l == "tp" or l == "fn"] for labels in results["step_scores"]])
-    metrics["f1"] = 2 * metrics[f"precision"] * metrics[f"recall"] / (metrics[f"precision"] + metrics[f"recall"])
-    metrics["verifier_score"] = flatten_and_average([[1 if l == "tp" or l == "fp" else 0 for l in labels] for labels in results["step_scores"]])
-    metrics["class_balance"] = flatten_and_average([[1 if l == "tp" or l == "fn" else 0 for l in labels] for labels in results["step_scores"]])
+        def flatten_and_average(l):
+            return np.mean([ele for sub_l in l for ele in sub_l])
+        metrics[f"accuracy_{j}"] = flatten_and_average([[1 if l == "tp" or l == "tn" else 0 for l in labels] for labels in results["step_scores"]])
+        metrics[f"precision_{j}"] = flatten_and_average([[1 if l == "tp" else 0 for l in labels if l == "tp" or l == "fp"] for labels in results["step_scores"]])
+        metrics[f"recall_{j}"] = flatten_and_average([[1 if l == "tp" else 0 for l in labels if l == "tp" or l == "fn"] for labels in results["step_scores"]])
+        metrics[f"f1_{j}"] = 2 * metrics[f"precision_{j}"] * metrics[f"recall_{j}"] / (metrics[f"precision_{j}"] + metrics[f"recall_{j}"])
+        metrics[f"verifier_score_{j}"] = flatten_and_average([[1 if l == "tp" or l == "fp" else 0 for l in labels] for labels in results["step_scores"]])
+        metrics[f"class_balance_{j}"] = flatten_and_average([[1 if l == "tp" or l == "fn" else 0 for l in labels] for labels in results["step_scores"]])
 
     return metrics, ""
 
@@ -369,7 +401,7 @@ def mean_acc_aggregate_fn(stats):
 
 def run_eval(dataset_path,
              end=None,
-             solution_key="model_answer",
+             model_answer_key="model_answer",
              K=1,
              mode="default",
              benchmark="gsm8k",
@@ -380,6 +412,8 @@ def run_eval(dataset_path,
     dataset = load_jsonl(dataset_path)
     if end is not None:
         dataset = dataset[:end]
+    # Fill in values so each sample in the dataset has the same fields
+    dataset = fill_missing_values(dataset, infer_dtype=True, debug=True)
     # Group by prompt so the metric_fn receives the assumed ordering (e.g. for majority vote)
     grouped_dataset = group_by_prompt(dataset)
     # Trim dataset according to K_rerank
@@ -393,10 +427,17 @@ def run_eval(dataset_path,
     metric_fn = get_metric_fn(mode)
 
     def make_metric_fields(sample):
-        sample["outputs"] = sample[solution_key]
+        if mode == "eval_dense":
+            if "step_labels" in sample:
+                sample["step_labels_1"] = sample["step_labels"]
+            if "model_answer" in sample:
+                sample["model_answer_1"] = sample["model_answer"]
+            elif "model_answer_1" in sample:
+                sample["model_answer"] = sample["model_answer_1"]
+        sample["outputs"] = sample[model_answer_key]
         if "model_answer_1" not in sample and "model_answer" in sample:
             sample["model_answer_1"] = sample["model_answer"]
-        sample["solution_key"] = solution_key
+        sample["model_answer_key"] = model_answer_key
         sample["tok_outputs"] = None
         sample["gt_answers"] = sample["answer"]
         sample["num_return_sequences"] = K
@@ -422,8 +463,7 @@ def run_eval(dataset_path,
     print("Dataset keys: ", dataset.keys())
     for k, v in dataset.items():
         if type(v[0]) is str and "<-1>" == v[0][:4]:
-            # NOTE: For now just assuming dtype of nested list is always float
-            dataset[k] = [decode_nested_lists(l, depth=0, dtype=str) for l in v]
+            dataset[k] = [decode_nested_lists(l, depth=0) for l in v]
 
     stats, metric_save_file = metric_fn(benchmark=benchmark, **dataset, save_file="")
     results = mean_acc_aggregate_fn(stats)
@@ -450,7 +490,7 @@ if __name__ == "__main__":
     """
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset_path", type=str)
-    parser.add_argument("--solution_key", default="model_answer", help="Key in dataset to model answers")
+    parser.add_argument("--model_answer_key", default="model_answer", help="Key in dataset to model answers")
     parser.add_argument("--end", default=None, type=int)
     parser.add_argument("--K", default=1, type=int, help="Number of candidate answers to rerank")
     parser.add_argument("--mode", default="default", choices=["default", "eval", "eval_dense", "rerank", "refinement"])

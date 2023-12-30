@@ -57,4 +57,27 @@ A2: {model_answer_2}\n\n\
 A3: {model_answer_3}\n\n\
 A4: {model_answer_4}\n\n\
 A5: {model_answer_5}",
+    "prm_verifier_default": "Is the following final answer to the question correct? Do not use code. \
+For each step write an intermediate verdict as IV: positive if the step is correct, 'negative; if incorrect, and 'neutral' if unsure. \
+Then give your final verdict at the END of your response as 'FV: positive' if the solution is correct and 'FV: negative' otherwise.\n\n\
+Your full analysis should look like \
+STEP_0, Discussion, IV: [verdict]\n\
+...\n\
+STEP_L, Discussion, IV: [verdict]\n\
+Discussion, FV: [verdict]\n\
+{prompt}{model_answer}",
+    "eval_dense_two_sol": "You will be shown multiple candidate solutions to a math problem and must assess each step \
+to determine correctness of the final answer. You are encouraged to compare and contrast both to improve your decision. Do NOT use code. \
+Do not give your final verdict until after any justification. \
+For each step write an intermediate verdict as IV: positive if the step is correct, 'negative; if incorrect, and 'neutral' if unsure. \
+Then give your final verdict at the END of your response as 'FV: positive' if the solution is correct and 'FV: negative' otherwise.\n\n\
+Your full analysis should look like \
+A1: STEP_0, Discussion, IV1: [verdict]\n\
+...\n\
+STEP_L, Discussion, IV1: [verdict]\n\
+A2: STEP_0,...\
+Discussion, FV1: [verdict], FV2: [verdict]\n\
+{prompt}\n\n\
+A1: {model_answer_1}\n\n\
+A2: {model_answer_2}",
 }
