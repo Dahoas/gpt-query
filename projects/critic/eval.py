@@ -8,7 +8,6 @@ from collections import defaultdict
 
 from utils import (load_jsonl, 
                    group_by_prompt, 
-                   grouped_prompts_to_dict, 
                    encode_nested_lists, 
                    decode_nested_lists,
                    get_first_key,
@@ -18,7 +17,8 @@ from utils import (load_jsonl,
                    split,
                    classify_error_type,
                    fill_missing_values,
-                   get_base_dtype)
+                   get_base_dtype,
+                   grouped_prompts_to_ordered_dict)
 
 from eval_gsm8k import get_gsm8k_final_answer, clean_gsm8k_final_answer, gsm8k_check_equals
 from eval_math import get_math_final_answer, clean_math_final_answer, math_check_equals
@@ -155,7 +155,6 @@ def eval(model_answers : Union[str, List[str]], gt_answer : str, mode : str = "m
         gt_step_labels = [step for i, step in enumerate(gt_step_labels) if i == 0 or gt_step_labels[i-1] == 1]
         model_step_labels = model_step_labels[:len(gt_step_labels)]
         results["step_scores"] = [classify_error_type(model_step, gt_step) for gt_step, model_step in zip(gt_step_labels, model_step_labels)]
-        
     elif mode == "refinement":
         assert False
         draft_fa = model_final_answer
@@ -180,7 +179,7 @@ def eval(model_answers : Union[str, List[str]], gt_answer : str, mode : str = "m
             chosen_answer = ""
             results["verdict_parse_error"] = 1
         model_final_answer, results["final_answer_parse_error"] = get_clean_final_answer(chosen_answer, benchmark=benchmark).values()
-        results["rerank@n"] = maj_1(model_final_answer, gt_final_answer)
+        results["rerank@n"] = maj_1(model_final_answer, gt_final_answer, benchmark=benchmark)
         # Compute maj@n baseline
         model_answers = [kwargs[k] for k in kwargs if "model_answer_" in k]
         maj_results = eval(model_answers=model_answers, gt_answer=gt_answer, mode="maj@n", benchmark=benchmark, return_chosen=True)
@@ -223,6 +222,7 @@ def maj_n_reward_fn(outputs, gt_answers, num_return_sequences, benchmark="gsm8k"
 def rerank_n_reward_fn(outputs, gt_answers, benchmark="gsm8k", *args, **kwargs):
     scores = []
     # Construct input arguments to eval
+    K = kwargs.get("K")[0]
     for i, gt_answer in enumerate(gt_answers):
         print(f"Sample {i} of ", len(gt_answers))
         args = {
@@ -232,9 +232,11 @@ def rerank_n_reward_fn(outputs, gt_answers, benchmark="gsm8k", *args, **kwargs):
                 "benchmark": benchmark,
                 "verdict": kwargs["verdicts"][i]
                }
+        model_answer_cnt = 0
         for k in kwargs:
-            if "model_answer_" in k:
+            if "model_answer_" in k and model_answer_cnt < K:
                 args[k] = kwargs[k][i]
+                model_answer_cnt += 1
         score = eval(**args)
         scores.append(score)
     return scores
@@ -415,9 +417,9 @@ def run_eval(dataset_path,
     # Fill in values so each sample in the dataset has the same fields
     dataset = fill_missing_values(dataset, infer_dtype=True, debug=True)
     # Group by prompt so the metric_fn receives the assumed ordering (e.g. for majority vote)
+    # Keeps only the first K samples per prompt
     grouped_dataset = group_by_prompt(dataset)
-    # Trim dataset according to K_rerank
-    dataset = grouped_prompts_to_dict(grouped_dataset)
+    dataset = grouped_prompts_to_ordered_dict(grouped_dataset)
     # Need to convert any nested list entries to giant strings to play nice with HF datasets
     for k, v in dataset.items():
         if type(v[0]) is list:
@@ -471,7 +473,7 @@ def run_eval(dataset_path,
     print(json.dumps(results, indent=2))
 
     save_file = ".".join(os.path.basename(dataset_path).split(".")[:-1])
-    save_file = f"{save_file}_{metric_save_file}"
+    save_file = f"{save_file}_{metric_save_file}_K_{K}"
 
     with open(f"results/{save_file}.json", "w") as f:
         json.dump(results, f, indent=2)

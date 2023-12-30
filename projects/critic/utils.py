@@ -1,6 +1,7 @@
 import json
 from tqdm import tqdm
 from typing import List
+from collections import defaultdict
 
 
 def get_first_key(d):
@@ -42,26 +43,28 @@ def dump_jsonl(dataset, filename):
             f.write("\n")
 
 
-def group_by_prompt(dataset, key="prompt"):
-    prompt_scores = {}
+def group_by_prompt(dataset, key="prompt", K=None):
+    grouped_samples = defaultdict(lambda: defaultdict(list))
     for sample in tqdm(dataset):
-        sample_prompt = sample[key]
-        pre_score = prompt_scores.get(sample_prompt)
-        if prompt_scores.get(sample_prompt):
-            for k, v in sample.items():
-                prompt_scores[sample_prompt][k].append(v)
-        else:
-            prompt_scores[sample_prompt] = {k: [v] for k, v in sample.items()}
+        val_key = sample[key]
+        for k, v in sample.items():
+            grouped_samples[val_key][k].append(v)
 
-    for sample in prompt_scores.values():
-        K = len(sample["prompt"])
-        sample["K"] = K * [K]
-    return prompt_scores
+    # Trim extra samples if K is not None
+    trimmed_groups = dict()
+    for k, samples in grouped_samples.items():
+        K = len(samples[key]) if K is None else K
+        trimmed_samples = {ki: vi[:K] for ki, vi in samples.items()}
+        trimmed_samples["K"] = K * [K]
+        trimmed_groups[k] = trimmed_samples
+
+    return trimmed_groups
 
 
 
-def grouped_prompts_to_dict(grouped_dataset):
-    """Converts a dataset grouped by prompt into a single depth dict
+def grouped_prompts_to_ordered_dict(grouped_dataset):
+    """
+    Converts a dataset grouped by prompt into a single depth dict
     + grouped_dataset: Of the form grouped_dataset[prompt] = {"prompt": [...], "response": [...], "K": int}
     Note K is not a list but an int
     """
