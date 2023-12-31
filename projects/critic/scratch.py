@@ -208,6 +208,21 @@ def update():
     dump_jsonl(list(benchmark.values()), "filtered_math_prm_test_2_multi_sample_eval_gpt_4.jsonl")
 
 
+def filter_correct_answer(dataset_path, benchmark, **kwargs):
+    dataset = load_jsonl(dataset_path)
+    def has_incorrect_answer(sample):
+        maj_1 = eval(model_answers=sample["model_answer"],
+                            gt_answer=sample["answer"],
+                            benchmark=benchmark,
+                            mode="maj@1",)["maj@1"]
+        return not maj_1
+    new_dataset = [sample for sample in dataset if has_incorrect_answer(sample)]
+    dataset_path = dataset_path.split(".jsonl")[0]
+    print("Len old dataset: ", len(dataset))
+    print("Len new dataset: ", len(new_dataset))
+    dump_jsonl(new_dataset, f"{dataset_path}_filtered_correct_answer.jsonl")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset_path", type=str)
@@ -217,7 +232,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    update()
+    filter_correct_answer(**vars(args))
     #filter_no_answer(**vars(args))
     #create_multi_sample_dataset(**vars(args))
 

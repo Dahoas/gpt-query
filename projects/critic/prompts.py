@@ -80,4 +80,18 @@ Discussion, FV1: [verdict], FV2: [verdict]\n\
 {prompt}\n\n\
 A1: {model_answer_1}\n\n\
 A2: {model_answer_2}",
+    "prm_verifier_recheck": """Below you will be shown an incorrect solution to a math problem and \
+an accompanying unreliable verification checking line by line to find where the solution went wrong. \
+You must recheck the unreliable verifier to make sure you have correctly identified the step containing the first error. \
+Go step by step, making sure to look carefully for mistakes in the steps preceding the location of the \
+estimated first error according to the verifier. If a step contains an error, write IV: negative. \
+Otherwise write IV: positive. Do not use code. \
+Your full analysis should look like \
+STEP_0, Discussion, IV: [verdict]\n\
+...\n\
+STEP_L, Discussion, IV: [verdict]\n\
+{prompt}\n\n\
+{model_answer}\n\n\
+{verdict}\n\n""",
 }
+

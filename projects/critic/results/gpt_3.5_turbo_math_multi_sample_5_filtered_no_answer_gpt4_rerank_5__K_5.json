@@ -1,0 +1,8 @@
+{
+  "gt_parse_error": 0.0,
+  "final_answer_parse_error": 0.0,
+  "verdict_parse_error": 0.06301369863013699,
+  "rerank@n": 0.8,
+  "maj@n": 0.7835616438356164,
+  "rerank_maj_agreement": 0.7452054794520548
+}

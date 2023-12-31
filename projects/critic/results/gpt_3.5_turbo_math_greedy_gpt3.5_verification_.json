@@ -1,1 +1,10 @@
-{"accuracy_A1": 0.5, "precision_A1": 0.38309859154929576, "recall_A1": 0.8143712574850299, "f1_A1": 0.26053639846743293, "maj@1_A1": 0.334, "verifier_score_A1": 0.71, "final_answer_parse_error_A1": 0.0, "verdict_parse_error_A1": 0.004}
+{
+  "accuracy_A1": 0.549,
+  "precision_A1": 0.4722617354196302,
+  "recall_A1": 0.8058252427184466,
+  "f1_A1": 0.5955156950672645,
+  "maj@1_A1": 0.412,
+  "verifier_score_A1": 0.703,
+  "final_answer_parse_error_A1": 0.0,
+  "verdict_parse_error_A1": 0.148
+}

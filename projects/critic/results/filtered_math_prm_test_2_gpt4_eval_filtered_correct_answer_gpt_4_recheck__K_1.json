@@ -1,0 +1,18 @@
+{
+  "verdict_parse_errors_1": NaN,
+  "final_answer_parse_error_1": 0.0,
+  "first_error_offset_1": 1.1142857142857143,
+  "first_error_early_1": 0.2571428571428571,
+  "first_error_late_1": 0.45714285714285713,
+  "first_error_accuracy_1": 0.2857142857142857,
+  "incorrect_solution_first_error_offset_1": 1.1142857142857143,
+  "incorrect_solution_first_error_early_1": 0.2571428571428571,
+  "incorrect_solution_first_error_late_1": 0.45714285714285713,
+  "incorrect_solution_first_error_accuracy_1": 0.2857142857142857,
+  "accuracy_1": 0.7019438444924406,
+  "precision_1": 0.8655589123867069,
+  "recall_1": 0.7539473684210526,
+  "f1_1": 0.8059071729957805,
+  "verifier_score_1": 0.714902807775378,
+  "class_balance_1": 0.8207343412526998
+}
