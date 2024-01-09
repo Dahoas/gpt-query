@@ -14,11 +14,11 @@ We evaluate several baseline prompting methods. These include single step prompt
 
 
 <div style="display: flex;">
-  <figure style="width: 50%;">
+  <figure style="width: 40%;">
   <img src="figs/gsm8k_baselines.png" alt="Alt Text" width=600 height="Height">
   <figcaption>Accuracy of verifiers on GSM8K verification test set.</figcaption>
 </figure> 
-  <figure style="width: 50%;">
+  <figure style="width: 40%;">
   <img src="figs/math_baselines.png" alt="Alt Text" width=600 height="Height">
   <figcaption>Accuracy of verifiers on MATH verification test set.</figcaption>
 </figure>
@@ -30,7 +30,7 @@ On MATH gpt-3.5 as a verifier performs much worse. At best it gets 58%: near ran
 
 
 <div style="display: flex; justify-content: space-between;">
-  <table style="flex: 1; margin-right: 20px; width: 50%;">
+  <table style="flex: 1; margin-right: 20px; width: 40%;">
     <caption>Classification statistics for chain of thought verifiers on GSM8K.</caption>
     <tr>
       <th> <span style="font-size: 16px;">GSM8K</span> </th>
@@ -69,7 +69,7 @@ On MATH gpt-3.5 as a verifier performs much worse. At best it gets 58%: near ran
   </table>
 
 
-  <table style="flex: 1; margin-left: 20px; width: 50%;">
+  <table style="flex: 1; margin-left: 20px; width: 40%;">
     <caption>Classification statistics for chain of thought verifiers on MATH.</caption>
     <tr>
       <th> <span style="font-size: 16px;">MATH</span> </th>
@@ -121,18 +121,18 @@ To construct verification test sets for GMS8K and MATH we sample `gpt-3.5-turbo-
 
 
 <div style="display: flex;">
-  <figure style="width: 50%;">
+  <figure style="width: 40%;">
   <img src="figs/gsm8k_multi_sample.png" alt="Alt Text" width=600 height="Height">
   <figcaption>Accuracy of (multi-sample) verifiers on GSM8K verification test set.</figcaption>
 </figure> 
-  <figure style="width: 50%;">
+  <figure style="width: 40%;">
   <img src="figs/math_multi_sample.png" alt="Alt Text" width=600 height="Height">
   <figcaption>Accuracy of (multi-sample) verifiers on MATH verification test set.</figcaption>
 </figure>
 </div>
 
 <div style="display: flex; justify-content: space-between;">
-  <table style="flex: 1; margin-right: 20px; width: 50%;">
+  <table style="flex: 1; margin-right: 20px; width: 40%;">
     <caption>Classification statistics for multi-sample verifiers on GSM8K.</caption>
     <tr>
       <th> <span style="font-size: 16px;">GSM8K</span> </th>
@@ -171,7 +171,7 @@ To construct verification test sets for GMS8K and MATH we sample `gpt-3.5-turbo-
   </table>
 
 
-  <table style="flex: 1; margin-left: 20px; width: 50%;">
+  <table style="flex: 1; margin-left: 20px; width: 40%;">
     <caption>Classification statistics for multi-sample verifiers on MATH.</caption>
     <tr>
       <th> <span style="font-size: 16px;">MATH</span> </th>
@@ -278,11 +278,11 @@ The first measure of overall step label accuracy is not particularly informative
 </div>
 
 <div style="display: flex;">
-  <figure style="width: 50%;">
+  <figure style="width: 40%;">
   <img src="figs/gpt_3.5_first_step_error.png" alt="Alt Text" width=600 height="Height">
   <figcaption>Breakdown of gpt-3.5 first error predictions.</figcaption>
 </figure> 
-  <figure style="width: 50%;">
+  <figure style="width: 40%;">
   <img src="figs/gpt_4_first_step_error.png" alt="Alt Text" width=600 height="Height">
   <figcaption>Breakdown of gpt-4 first error predictions.</figcaption>
 </figure>
@@ -296,11 +296,11 @@ gpt-4 final verification accuracy on this test set is worse compared to earlier 
 To better understand how both verifiers perform at detecting the presence of errors we now only evaluate on the subset of solutions containing mistakes.
 
 <div style="display: flex;">
-  <figure style="width: 50%;">
+  <figure style="width: 40%;">
   <img src="figs/gpt_3.5_incorrect_first_step_error.png" alt="Alt Text" width=600 height="Height">
   <figcaption>Breakdown of gpt-3.5 first error predictions on subset containing all incorrect solutions.</figcaption>
 </figure> 
-  <figure style="width: 50%;">
+  <figure style="width: 40%;">
   <img src="figs/gpt_4_incorrect_first_step_error.png" alt="Alt Text" width=600 height="Height">
   <figcaption>Breakdown of gpt-4 first error predictions on subset containing all incorrect solutions.</figcaption>
 </figure>
