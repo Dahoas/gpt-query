@@ -15,11 +15,11 @@ We evaluate several baseline prompting methods. These include single step prompt
 
 <div style="display: flex;">
   <figure style="width: 40%;">
-  <img src="figs/gsm8k_baselines.png" alt="Alt Text" width=100% height="Height">
+  <img src="figs/gsm8k_baselines.png" alt="Alt Text" width=40% height="Height">
   <figcaption>Accuracy of verifiers on GSM8K verification test set.</figcaption>
 </figure> 
   <figure style="width: 40%;">
-  <img src="figs/math_baselines.png" alt="Alt Text" width=100% height="Height">
+  <img src="figs/math_baselines.png" alt="Alt Text" width=40% height="Height">
   <figcaption>Accuracy of verifiers on MATH verification test set.</figcaption>
 </figure>
 </div>
