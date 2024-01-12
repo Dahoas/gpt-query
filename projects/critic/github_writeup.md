@@ -13,7 +13,7 @@ We begin by evaluating the accuracy of `gpt-3.5-turbo-1106` and `gpt-4-preview-1
 We evaluate several baseline prompting methods. These include single step prompting, where the model generates a single 'positive' or 'negative' token following the (Q, A) pair, chain of thought, and a debate prompt where the model lists pros and cons of the solution before coming to a final verdict. In particular when doing chain of thought, we instruct the verifier to examine each invididual step of the solution before coming a final verdict. This is important, as otherwise even gpt-4 often produces a final verdict and subsequent post-hoc rationalization instead of delaying a final verdict until the end of its completion. Specific prompt formats can be found in [`prompts.py`](prompts.py). All models are sampled at temperature $T = 0$. Results are reported below.
 
 
-<div style="display: flex;">
+<div style="display: block; text-align: center">
   <img src="figs/gsm8k_baselines.png" alt="Alt Text" width=40% height="Height">
   <img src="figs/math_baselines.png" alt="Alt Text" width=40% height="Height">
 </div>
@@ -23,7 +23,7 @@ On GSM8K both gpt-3.5 and gpt-4 successfully verify the correctness test problem
 On MATH gpt-3.5 as a verifier performs much worse. At best it gets 58%: near random guessing accuracy. This is perhaps somewhat surprising as gpt-3.5 is able to successfully solve 41% of MATH problems. In contrast, gpt-4 again performs very well, correctly verifying up to 88% of candidate solutions. The relative performance of prompting strategies stays similar with chain of thought working best for gpt-4 and single-step working best for gpt-3.5. To better understand verifier failure modes we can examine precision and recall statistics.
 
 
-<div style="display: flex; justify-content: space-between;">
+<div style="display: block; justify-content: space-between;">
   <table style="flex: 1; margin-right: 20px; width: 40%;">
     <caption>Classification statistics for chain of thought verifiers on GSM8K.</caption>
     <tr>
