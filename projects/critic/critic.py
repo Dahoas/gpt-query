@@ -33,7 +33,7 @@ def verify():
     #system_prompt_text = "You are a top professor evaluating math problems. \
 #Print your final verdict as either 'Correct' or 'Incorrect' after the words 'Final Verdict: '"
     system_prompt_text = "You are a top professor evaluating math problems."
-    task_prompt_text = prompts["prm_verifier_recheck"]
+    task_prompt_text = prompts["eval_gsm8k_step_by_step"]
 
     gpt = GPT(model_name="gpt-4-1106-preview",#"gpt-3.5-turbo-1106",#"gpt-4-1106-preview",
             temperature=0,
@@ -43,10 +43,11 @@ def verify():
             mb_size=1,
             verbose=True,)
 
-    #Logger.init("rollouts/cot_gsm8k_golden_gpt_3.5_turbo_eval_single_step.jsonl")
-    data = load_jsonl("rollouts/filtered_math_prm_test_2_gpt4_eval_filtered_correct_answer.jsonl")
-    Logger.init("rollouts/filtered_math_prm_test_2_gpt4_eval_filtered_correct_answer_gpt_4_recheck.jsonl")
-    #data = load_jsonl("rollouts/cot_gsm8k.jsonl")
+    data = load_jsonl("rollouts/gpt_3.5_turbo_math_multi_sample_2_diverse.jsonl")
+    for sample in data:
+        sample["model_answer"] = sample["model_answer_2"]
+    Logger.init("rollouts/gpt_3.5_turbo_math_multi_sample_2_diverse_model_answer_2_gpt_4_eval.jsonl")
+
     outputs = gpt(data, one_by_one=False, output_key="verdict")
 
 

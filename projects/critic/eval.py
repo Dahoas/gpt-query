@@ -5,6 +5,7 @@ import json
 import os
 import argparse
 from collections import defaultdict
+from functools import partial
 
 from utils import (load_jsonl, 
                    group_by_prompt, 
@@ -120,34 +121,20 @@ def eval(model_answers : Union[str, List[str]], gt_answer : str, mode : str = "m
         convert = defaultdict(lambda: "error", dict(positive=1, neutral=1, negative=0))  # NOTE: giving 'neutral' score of 1
         gt_step_labels  = [1 if step == 0 else 0 if step == -1 else step for step in gt_step_labels]  # NOTE: giving 'neutral' score of 1
         # Extract intermediate step scores from model output
-        if True:
-            loc = kwargs.get("loc")
-            try:
-                model_step_labels = re.split(r"A\d+:", kwargs.get("verdict"))[loc] if loc else kwargs.get("verdict")
-            except IndexError:
-                model_step_labels = re.split(r"A\d+:", kwargs.get("verdict"))[-1]
-            #print("-------------")
-            #print(model_step_labels)
-            model_step_labels = re.findall(r"IV\d*: (\w+)", model_step_labels)
-            #model_step_labels = re.split(r"IV\d*:", model_step_labels)[1:]
-            #print("-------------")
-            #print(model_step_labels)
-            model_step_labels = [convert[step] for step in model_step_labels]
-            model_step_labels = model_step_labels[:len(gt_step_labels)]
-            #print("-------------")
-            #print(model_step_labels)
-            #exit()
-        else:
-        #except Exception as e:
-            print(e)
-            exit()
-            model_step_labels = len(gt_step_labels) * ["error"]
+        loc = kwargs.get("loc")
+        try:
+            model_step_labels = re.split(r"A\d+:", kwargs.get("verdict"))[loc] if loc else kwargs.get("verdict")
+        except IndexError:
+            model_step_labels = re.split(r"A\d+:", kwargs.get("verdict"))[-1]
+        model_step_labels = re.findall(r"IV\d*: (\w+)", model_step_labels)
+        model_step_labels = [convert[step] for step in model_step_labels]
+        model_step_labels = model_step_labels[:len(gt_step_labels)]
         results["verdict_parse_errors"] = [1 if step == "error" else 0 for step in model_step_labels]
         # Compute first error prediction accuracy
         # NOTE: np.argmin([1, 1, "error", 0]) == 3
         # Also note gt_step_labels are guanrateed to have 0 for all steps following the first error
-        gt_first_error_loc = np.argmin(gt_step_labels) if 0 in gt_step_labels else len(gt_step_labels) - 1
-        pred_first_error_loc = np.argmin(model_step_labels) if 0 in model_step_labels else len(model_step_labels) - 1
+        gt_first_error_loc = np.argmin(gt_step_labels) if 0 in gt_step_labels else len(gt_step_labels)
+        pred_first_error_loc = np.argmin(model_step_labels) if 0 in model_step_labels else len(gt_step_labels)
         results["first_error_offset"] = pred_first_error_loc - gt_first_error_loc
         # Now compute accuracy over all labels
         # NOTE: Trim step labels by removing all steps after first incorrect step
@@ -279,14 +266,29 @@ def default_metric_fn(outputs, gt_answers, benchmark, *args, **kwargs):
         return metrics
 
 
-def eval_metric_fn(outputs, gt_answers, verdicts, K, model_answer_key, *args, **kwargs):
+def eval_metric_fn(outputs, 
+                   gt_answers, 
+                   verdicts, 
+                   K, 
+                   model_answer_key, 
+                   *args, 
+                   compute_match_statistics=False, 
+                   **kwargs):
     metrics = {}
     model_answer_key = model_answer_key[0]
     K = K[0]
-    for i in range(1, K+1):
-        results = jsonl_to_dict([eval(output, gt_ans, verdict=verdict, loc=i, mode="eval_verifier", *args, **kwargs) for output, gt_ans, verdict in zip(kwargs.get(f"{model_answer_key}_{i}"), gt_answers, verdicts)])
-        gts = results["maj@1"]
-        predictions = results["verifier_score"]
+    history = []
+
+    def update_metrics(gts, 
+                       predictions,
+                       name):
+        """
+        Compute statistics from gts, predictions for `name` data subset and 
+        update metrics dict.
+        + gts: ground truth
+        + predictions: predictions
+        + name: name of data subset
+        """
         tp, fp, tn, fn = 0, 0, 0, 0
         for gt, prediction in zip(gts, predictions):
             if gt == 1 and prediction == 1:
@@ -295,17 +297,60 @@ def eval_metric_fn(outputs, gt_answers, verdicts, K, model_answer_key, *args, **
                 fn += 1
             elif gt == 0 and prediction == 1:
                 fp += 1
-            else:
+            elif gt == 0 and prediction == 0:
                 tn += 1
+            else:
+                raise ValueError(f"Unknown values: \
+                                  gt: {gt}\n\
+                                  pred: {prediction} !!!")
 
-        metrics[f"accuracy_A{i}"] = results["eval_verifier"]
-        metrics[f"precision_A{i}"] = tp / (tp + fp)
-        metrics[f"recall_A{i}"] = tp / (tp + fn)
-        metrics[f"f1_A{i}"] = 2 * metrics[f"precision_A{i}"] * metrics[f"recall_A{i}"] / (metrics[f"precision_A{i}"] + metrics[f"recall_A{i}"])
-        metrics[f"maj@1_A{i}"] = gts
-        metrics[f"verifier_score_A{i}"] = predictions
+        metrics[f"accuracy_A_{name}"] = (tp + tn) / (tp + tn + fp + fn + 1e-5)
+        metrics[f"precision_A_{name}"] = tp / (tp + fp + 1e-5)
+        metrics[f"recall_A_{name}"] = tp / (tp + fn + 1e-5)
+        metrics[f"f1_A{name}"] = 2 * metrics[f"precision_A_{name}"] * metrics[f"recall_A_{name}"] / (metrics[f"precision_A_{name}"] + metrics[f"recall_A_{name}"] + 1e-5)
+        metrics[f"maj@1_A_{name}"] = gts
+        metrics[f"verifier_score_A_{name}"] = predictions
+        
+
+    for i in range(1, K+1):
+        results = jsonl_to_dict([eval(output, 
+                                      gt_ans, 
+                                      verdict=verdict, 
+                                      loc=i, 
+                                      mode="eval_verifier", 
+                                      *args, **kwargs) 
+                                      for output, gt_ans, verdict in zip(kwargs.get(f"{model_answer_key}_{i}"), gt_answers, verdicts)])
+        gts = results["maj@1"]
+        predictions = results["verifier_score"]
+        history.append((gts, predictions))
+        update_metrics(gts, 
+                       predictions,
+                       name=i)
         metrics[f"final_answer_parse_error_A{i}"] = results["final_answer_parse_error"]
         metrics[f"verdict_parse_error_A{i}"] = results["verdict_parse_error"]
+
+    # Additionally, if K = 2 compute statistics
+    # for cases when final answer is same vs. dissimilar
+    if K == 2 and compute_match_statistics:
+        solution_agreements = [eval(a1, a2, mode="maj@1", benchmark=kwargs.get("benchmark"))["maj@1"] for a1, a2 in zip(kwargs.get(f"{model_answer_key}_1"), 
+                                                               kwargs.get(f"{model_answer_key}_2"))]
+        # Partition samples into those whose solutions match and those who do not
+        matched_inds = [i for i in range(len(solution_agreements)) if solution_agreements[i]]
+        unmatched_inds = [i for i in range(len(solution_agreements)) if not solution_agreements[i]]
+
+        metrics["num_matched"] = len(matched_inds)
+        metrics["num_unmatched"] = len(unmatched_inds)
+
+        for i, (gts, predictions) in zip(range(1, K+1), history):
+            # Compute statistics for matching inds
+            matched_gts = [gts[ind] for ind in matched_inds]
+            matched_predictions = [predictions[ind] for ind in matched_inds]
+            update_metrics(matched_gts, matched_predictions, name=f"{i}_matched")
+            # Compute statistics for unmatched inds
+            unmatched_gts = [gts[ind] for ind in unmatched_inds]
+            unmatched_predictions = [predictions[ind] for ind in unmatched_inds]
+            update_metrics(unmatched_gts, unmatched_predictions, name=f"{i}_unmatched")
+
     return metrics, ""
 
 
@@ -376,6 +421,8 @@ def get_metric_fn(metric_name):
         return refinement_metric_fn
     elif metric_name == "eval":
         return eval_metric_fn
+    elif metric_name == "eval_matched":
+        return partial(eval_metric_fn, compute_match_statistics=True)
     elif metric_name == "eval_dense":
         return eval_dense_metric_fn
     elif metric_name == "rerank":
@@ -444,7 +491,7 @@ def run_eval(dataset_path,
         sample["gt_answers"] = sample["answer"]
         sample["num_return_sequences"] = K
         sample["K"] = K
-        if mode == "eval" or mode == "rerank":
+        if mode == "eval" or mode == "rerank" or mode == "eval_matched":
             if "gpt4_single_step_eval" in sample:
                 sample["verdicts"] = sample["gpt4_single_step_eval"]
             elif "gpt4_step_by_step_eval" in sample:
@@ -495,7 +542,8 @@ if __name__ == "__main__":
     parser.add_argument("--model_answer_key", default="model_answer", help="Key in dataset to model answers")
     parser.add_argument("--end", default=None, type=int)
     parser.add_argument("--K", default=1, type=int, help="Number of candidate answers to rerank")
-    parser.add_argument("--mode", default="default", choices=["default", "eval", "eval_dense", "rerank", "refinement"])
+    parser.add_argument("--mode", default="default", choices=["default", "eval", "eval_dense", 
+                                                              "eval_matched", "rerank", "refinement"])
     parser.add_argument("--benchmark", default="gsm8k", choices=["gsm8k", "math"])
     parser.add_argument("--dump_labeled_dataset", action="store_true")
     args = parser.parse_args()
