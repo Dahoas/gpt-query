@@ -2,7 +2,7 @@ from gptquery.gpt import GPT
 from gptquery.logger import Logger
 
 
-google_key = "AIzaSyARcyOX4FwQXrYBvwp1M9zNg5Ntw9uORaE"
+google_key = "YOUR_GOOGLE_KEY_HERE"
 
 task_prompt_text = "Answer the following question for me in the style of a Thomas Hume. {question}"
 
