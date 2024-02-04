@@ -2,13 +2,41 @@ import os
 import asyncio
 from typing import List
 from time import time
+from dataclasses import dataclass, asdict
 
 from gptquery.utils import chunk
 from gptquery.logger import Logger
 
-from langchain.chat_models import ChatOpenAI
-from langchain.prompts.chat import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
-from langchain.chains import LLMChain
+from litellm import batch_completion, acompletion
+
+
+@dataclass
+class Message:
+    content: str
+    role: str
+
+
+@dataclass
+class LLMRequest:
+    messages: List[Message]
+
+    def to_list(self) -> List[dict]:
+        return [asdict(message) for message in self.messages]
+
+
+def configure_keys(keys: dict):
+    for name, key in keys.items():
+        if name == "OPENAI_API_KEY":
+            os.environ["OPENAI_API_KEY"] = key
+        elif name == "GOOGLE_API_KEY":
+            import google.generativeai as genai
+            genai.configure(api_key=key)
+        elif name == "PALM_API_KEY":
+            os.environ["PALM_API_KEY"] = key
+        elif name == "GEMINI_API_KEY":
+            os.environ["GEMINI_API_KEY"] = key
+        else:
+            raise ValueError(f"Unknown key: {name}!!!")
 
 
 class GPT:
@@ -17,40 +45,54 @@ class GPT:
                  temperature=0.7, 
                  max_num_tokens=4096, 
                  mb_size=10,
-                 system_prompt_text="You are a helpful AI assistant.",
                  task_prompt_text=None,
                  log=True,
                  oai_key=None,
-                 verbose=False,):
-        assert oai_key is not None or os.environ.get("OPENAI_API_KEY") is not None
-        os.environ["OPENAI_API_KEY"] = oai_key
+                 keys=dict(),
+                 verbose=False,
+                 asynchronous=False,):
+        if oai_key is not None:
+            keys["OPENAI_API_KEY"] = oai_key
+        configure_keys(keys)
 
         self.model_name = model_name
         self.temperature = temperature
         self.max_num_tokens = max_num_tokens
         self.mb_size = mb_size
         self.request_timeout = max(15, int(max_num_tokens / 15)) if "gpt-3.5" in model_name else max(20, int(max_num_tokens / 10)) # noqa : E501
-        self.endpoint = ChatOpenAI(request_timeout=self.request_timeout, model_name=model_name, temperature=temperature, max_tokens=max_num_tokens)
 
-        # Set system prompt and task format
-        self.system_prompt_text = system_prompt_text
-        self.system_prompt = SystemMessagePromptTemplate.from_template(self.system_prompt_text)
         assert task_prompt_text is not None
-        # NOTE: This assumes using chat model gpt-3.5 or gpt-4
         self.task_prompt_text = task_prompt_text
-        self.task_prompt = HumanMessagePromptTemplate.from_template(task_prompt_text)
-        self.prompt_template = ChatPromptTemplate.from_messages([self.system_prompt, self.task_prompt])
-        self.agent = LLMChain(llm=self.endpoint, prompt=self.prompt_template)
 
         self.log = log
         self.verbose = verbose
+        self.asynchronous = asynchronous
+
+    def synchronous_completion(self, samples: List[LLMRequest]):
+        responses = batch_completion(
+                    model=self.model_name,
+                    messages=[sample.to_list() for sample in samples],
+                    temperature=self.temperature,
+                    max_tokens=self.max_num_tokens,
+                )
+        return responses
+    
+    async def asynchronous_completion(self, sample: LLMRequest):
+        responses = await acompletion(
+                    model=self.model_name,
+                    messages=sample.to_list(),
+                    temperature=self.temperature,
+                    max_tokens=self.max_num_tokens,
+                )
+        return responses
 
     def __call__(self, batch: List[dict], one_by_one=False, output_key="response"):
         t = time()
         if one_by_one:
             for i, sample in enumerate(batch):
-                response = self.agent.apply([sample])
-                sample[output_key] = response[0]["text"]
+                requests = [LLMRequest(messages=[Message(content=self.task_prompt_text.format(**sample), role="user")])]
+                responses = self.synchronous_completion(requests)
+                sample[output_key] = responses[0].choices[0].message.content
                 if self.log:
                     Logger.log([sample])
                 if self.verbose:
@@ -58,9 +100,13 @@ class GPT:
         else:
             mbs = chunk(batch, self.mb_size)
             for i, mb in enumerate(mbs):
-                batch_responses = asyncio.run(self.agent.aapply(mb))
+                requests = [LLMRequest(messages=[Message(content=self.task_prompt_text.format(**sample), role="user")]) for sample in mb]
+                if self.asynchronous:
+                    batch_responses = [asyncio.run(self.asynchronous_completion(request)) for request in requests]
+                else:
+                    batch_responses = self.synchronous_completion(requests)
                 for sample, response in zip(mb, batch_responses):
-                    sample[output_key] = response["text"]
+                    sample[output_key] = response.choices[0].message.content
                 if self.log:
                     Logger.log(mb)
                 if self.verbose:
