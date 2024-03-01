@@ -47,10 +47,12 @@ class GPT:
                  mb_size=10,
                  task_prompt_text=None,
                  log=True,
+                 logging_path=None,
                  oai_key=None,
                  keys=dict(),
                  verbose=False,
-                 asynchronous=False,):
+                 asynchronous=False,
+                 model_endpoint=None,):
         if oai_key is not None:
             keys["OPENAI_API_KEY"] = oai_key
         configure_keys(keys)
@@ -67,6 +69,10 @@ class GPT:
         self.log = log
         self.verbose = verbose
         self.asynchronous = asynchronous
+        self.model_endpoint = model_endpoint
+
+        if logging_path is not None:
+            Logger.init(logging_path)
 
     def synchronous_completion(self, samples: List[LLMRequest]):
         responses = batch_completion(
@@ -74,6 +80,7 @@ class GPT:
                     messages=[sample.to_list() for sample in samples],
                     temperature=self.temperature,
                     max_tokens=self.max_num_tokens,
+                    api_base=self.model_endpoint,
                 )
         return responses
     
@@ -83,6 +90,7 @@ class GPT:
                     messages=sample.to_list(),
                     temperature=self.temperature,
                     max_tokens=self.max_num_tokens,
+                    api_base=self.model_endpoint,
                 )
         return responses
 
