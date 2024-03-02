@@ -52,7 +52,8 @@ class GPT:
                  keys=dict(),
                  verbose=False,
                  asynchronous=False,
-                 model_endpoint=None,):
+                 model_endpoint=None,
+                 max_interactions=2,):
         if oai_key is not None:
             keys["OPENAI_API_KEY"] = oai_key
         configure_keys(keys)
@@ -70,6 +71,7 @@ class GPT:
         self.verbose = verbose
         self.asynchronous = asynchronous
         self.model_endpoint = model_endpoint
+        self.max_interactions = max_interactions
 
         if logging_path is not None:
             Logger.init(logging_path)
@@ -93,30 +95,46 @@ class GPT:
                     api_base=self.model_endpoint,
                 )
         return responses
+    
+    def is_complete_response(self, response, is_complete_keyword):
+        return is_complete_keyword is None or is_complete_keyword in response
 
-    def __call__(self, batch: List[dict], one_by_one=False, output_key="response"):
+    def __call__(self, batch: List[dict], 
+                 output_key="response",
+                 is_complete_keyword=None,):
         t = time()
-        if one_by_one:
-            for i, sample in enumerate(batch):
-                requests = [LLMRequest(messages=[Message(content=self.task_prompt_text.format(**sample), role="user")])]
-                responses = self.synchronous_completion(requests)
-                sample[output_key] = responses[0].choices[0].message.content
-                if self.log:
-                    Logger.log([sample])
-                if self.verbose:
-                    print(f"Finished batch {i} of {len(batch)} in {(time() - t) / 60} min. ({(time() - t) / ((i+1)*60)} min. per sample)")
-        else:
-            mbs = chunk(batch, self.mb_size)
-            for i, mb in enumerate(mbs):
-                requests = [LLMRequest(messages=[Message(content=self.task_prompt_text.format(**sample), role="user")]) for sample in mb]
+        # Label with unique ids and add output_key field with empty string value
+        batch = [{**sample, **{"gptquery_id": i, output_key: ""}} for i, sample in enumerate(batch)]
+        mbs = chunk(batch, self.mb_size)
+        for i, mb in enumerate(mbs):    
+            cur_mb = mb
+            for _ in range(self.max_interactions):
+                if len(cur_mb) == 0: break
+                # Construct LLM requests
+                requests = []
+                for sample in cur_mb:
+                    messages = [Message(content=self.task_prompt_text.format(**sample), role="user")]
+                    if len(sample[output_key]) > 0:
+                        messages += [Message(content=sample[output_key], role="assistant"), Message(content="", role="user")]
+                    request = LLMRequest(messages=messages)
+                    requests.append(request)
                 if self.asynchronous:
-                    batch_responses = [asyncio.run(self.asynchronous_completion(request)) for request in requests]
+                    responses = [asyncio.run(self.asynchronous_completion(request)) for request in requests]
                 else:
-                    batch_responses = self.synchronous_completion(requests)
-                for sample, response in zip(mb, batch_responses):
-                    sample[output_key] = response.choices[0].message.content
-                if self.log:
-                    Logger.log(mb)
-                if self.verbose:
-                    print(f"Finished batch {i} of {len(mbs)} in {(time() - t) / 60} min. ({(time() - t) / ((i+1)*60*self.mb_size)} min. per sample)")
+                    responses = self.synchronous_completion(requests)
+                # Extract responses from response format
+                responses = [response.choices[0].message.content for response in responses]
+                # Update output_key field
+                for sample, response in zip(cur_mb, responses):
+                    # Combine intermediate response with update by simple concatenation
+                    sample[output_key] = sample[output_key] + response
+                # Filter out completed samples
+                cur_mb = [sample for sample in cur_mb if not self.is_complete_response(sample[output_key], is_complete_keyword)]
+            if self.log:
+                Logger.log(mb)
+            if self.verbose:
+                print(f"Finished batch {i} of {len(mbs)} in {(time() - t) / 60} min. ({(time() - t) / ((i+1)*60*self.mb_size)} min. per sample)")
+        # Remove gptquery_ids
+        for sample in batch:
+            sample.pop("gptquery_id")
         return batch
