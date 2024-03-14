@@ -1,8 +1,3 @@
-# Description
+# GPT-4 as a Step-level Critic
 
-This project investigates the verification abilities of gpt-4 WITHOUT code (we do not consider code because it is a big confounding factor).
-
-# Questions
-
-- How much of the multi-sample improvement comes from reinforcing correctness of correct answers with the same final answers
-    - where does the improvement come from?
+This project investigates the verification abilities of gpt-4 WITHOUT code at the step-level on GSM8K and MATH. You can find a writeup of our findings [here](https://dahoas.github.io/llms/reasoning/2024/01/12/critic.html).
