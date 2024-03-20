@@ -35,6 +35,8 @@ def configure_keys(keys: dict):
             os.environ["PALM_API_KEY"] = key
         elif name == "GEMINI_API_KEY":
             os.environ["GEMINI_API_KEY"] = key
+        elif name == "ANTHROPIC_API_KEY":
+            os.environ["ANTHROPIC_API_KEY"] = key
         else:
             raise ValueError(f"Unknown key: {name}!!!")
 
