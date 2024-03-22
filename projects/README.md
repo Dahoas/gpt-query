@@ -1,3 +1,3 @@
 # Overview
 
-Project repository for [Evaluating the zero-shot verification abilities of GPT-4 on math problems](https://dahoas.github.io/llms/reasoning/2024/01/12/critic.html).
+The `projects` folder houses projects relying on gptquery to interact with LLM providers.
