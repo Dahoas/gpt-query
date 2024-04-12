@@ -3,25 +3,13 @@ import asyncio
 from typing import List
 from time import time
 from dataclasses import dataclass, asdict
+import uuid
 
 from gptquery.utils import chunk
 from gptquery.logger import Logger
+from gptquery.datatypes import Message, LLMRequest
 
 from litellm import batch_completion, acompletion
-
-
-@dataclass
-class Message:
-    content: str
-    role: str
-
-
-@dataclass
-class LLMRequest:
-    messages: List[Message]
-
-    def to_list(self) -> List[dict]:
-        return [asdict(message) for message in self.messages]
 
 
 def configure_keys(keys: dict):
@@ -48,7 +36,6 @@ class GPT:
                  max_num_tokens=4096, 
                  mb_size=10,
                  task_prompt_text=None,
-                 log=True,
                  logging_path=None,
                  oai_key=None,
                  keys=dict(),
@@ -69,14 +56,16 @@ class GPT:
         assert task_prompt_text is not None
         self.task_prompt_text = task_prompt_text
 
-        self.log = log
+        self.logging_path = logging_path
+        self.do_log = logging_path is not None
+        self.log_identity = str(uuid.uuid4())
         self.verbose = verbose
         self.asynchronous = asynchronous
         self.model_endpoint = model_endpoint
         self.max_interactions = max_interactions
 
-        if logging_path is not None:
-            Logger.init(logging_path)
+        if self.logging_path is not None:
+            Logger.init(logging_path, identity=self.log_identity)
 
     def synchronous_completion(self, samples: List[LLMRequest]):
         responses = batch_completion(
@@ -100,6 +89,9 @@ class GPT:
     
     def is_complete_response(self, response, is_complete_keyword):
         return is_complete_keyword is None or is_complete_keyword in response
+    
+    def log(self, mb):
+        Logger.log(mb, identity=self.log_identity)
 
     def __call__(self, batch: List[dict], 
                  output_key="response",
@@ -132,8 +124,8 @@ class GPT:
                     sample[output_key] = sample[output_key] + response
                 # Filter out completed samples
                 cur_mb = [sample for sample in cur_mb if not self.is_complete_response(sample[output_key], is_complete_keyword)]
-            if self.log:
-                Logger.log(mb)
+            if self.do_log:
+                self.log(mb)
             if self.verbose:
                 print(f"Finished batch {i} of {len(mbs)} in {(time() - t) / 60} min. ({(time() - t) / ((i+1)*60*self.mb_size)} min. per sample)")
         # Remove gptquery_ids
