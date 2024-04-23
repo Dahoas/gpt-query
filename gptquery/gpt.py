@@ -67,37 +67,40 @@ class GPT:
         if self.logging_path is not None:
             Logger.init(logging_path, identity=self.log_identity)
 
-    def synchronous_completion(self, samples: List[LLMRequest], is_complete_keyword):
+    def synchronous_completion(self, samples: List[LLMRequest], is_complete_keywords: List[str]):
         responses = batch_completion(
                     model=self.model_name,
                     messages=[sample.to_list() for sample in samples],
                     temperature=self.temperature,
                     max_tokens=self.max_num_tokens,
                     api_base=self.model_endpoint,
-                    stop=is_complete_keyword,
+                    stop=is_complete_keywords,
                 )
         return responses
     
-    async def asynchronous_completion(self, sample: LLMRequest):
+    async def asynchronous_completion(self, sample: LLMRequest, is_complete_keywords: List[str]):
         responses = await acompletion(
                     model=self.model_name,
                     messages=sample.to_list(),
                     temperature=self.temperature,
                     max_tokens=self.max_num_tokens,
                     api_base=self.model_endpoint,
-                    stop=is_complete_keyword,
+                    stop=is_complete_keywords,
                 )
         return responses
     
-    def is_complete_response(self, response, is_complete_keyword):
-        return is_complete_keyword is None or is_complete_keyword in response
+    def is_complete_response(self, response, is_complete_keywords):
+        if len(is_complete_keywords) == 0:
+            return True
+        else:
+            return bool(sum([keyword in response for keyword in is_complete_keywords]))
     
     def log(self, mb):
         Logger.log(mb, identity=self.log_identity)
 
     def __call__(self, batch: List[dict], 
                  output_key="response",
-                 is_complete_keyword=None,):
+                 is_complete_keywords=[],):
         t = time()
         # Label with unique ids and add output_key field with empty string value
         batch = [{**sample, **{"gptquery_id": i, output_key: ""}} for i, sample in enumerate(batch)]
@@ -116,9 +119,9 @@ class GPT:
                     requests.append(request)
                 # Send requests
                 if self.asynchronous:
-                    responses = [asyncio.run(self.asynchronous_completion(request, [is_complete_keyword])) for request in requests]
+                    responses = [asyncio.run(self.asynchronous_completion(request, is_complete_keywords)) for request in requests]
                 else:
-                    responses = self.synchronous_completion(requests, [is_complete_keyword])
+                    responses = self.synchronous_completion(requests, is_complete_keywords)
                 # Extract responses from response format
                 responses = [response.choices[0].message.content for response in responses]
                 # Update output_key field
@@ -126,14 +129,15 @@ class GPT:
                     # Combine intermediate response with update by simple concatenation
                     sample[output_key] = sample[output_key] + response
                 # Filter out completed samples
-                cur_mb = [sample for sample in cur_mb if not self.is_complete_response(sample[output_key], is_complete_keyword)]
+                cur_mb = [sample for sample in cur_mb if not self.is_complete_response(sample[output_key], is_complete_keywords)]
             if self.do_log:
                 self.log(mb)
             if self.verbose:
                 print(f"Finished batch {i} of {len(mbs)} in {(time() - t) / 60} min. ({(time() - t) / ((i+1)*60*self.mb_size)} min. per sample)")
-        # Remove gptquery_ids and truncate after 'is_complete_keyworld'
+        # Remove gptquery_ids and truncate after 'is_complete_keywords'
         for sample in batch:
             sample.pop("gptquery_id")
-            if is_complete_keyword is not None:
-                sample[output_key] = sample[output_key].split(is_complete_keyword)[0]
+            for keyword in is_complete_keywords:
+                if keyword in is_complete_keywords:
+                    sample[output_key] = sample[output_key].split(keyword)[0]
         return batch

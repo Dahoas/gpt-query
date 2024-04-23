@@ -5,7 +5,7 @@ from transformers import AutoTokenizer
 
 task_prompt_text = "{prompt}"
 
-model_path = "meta-llama/Meta-Llama-3-8B"
+model_path = "meta-llama/Meta-Llama-3-8B-Instruct"
 tokenizer_path = model_path
 gpt = GPT(model_name=f"openai/{model_path}",
           model_endpoint="http://atl1-1-03-006-5-0:8000/v1",
@@ -16,7 +16,7 @@ tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
 
 def timed_generate(input):
     t = time()
-    response = gpt(input, is_complete_keyword="<DONE>")[0]["response"]
+    response = gpt(input, is_complete_keywords=["<DONE>"])[0]["response"]
     t = time() - t
     return response, t
 
