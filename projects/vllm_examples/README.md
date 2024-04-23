@@ -8,7 +8,7 @@ python -m venv vllm
 source vllm/bin/activate
 pip install vllm
 ```
-Step 2: Fix incompatible urllib3 version
+Step 2: (Optional) Fix incompatible urllib3 version
 ```bash
 pip uninstall urllib3
 pip install urllib3==1.21.1
