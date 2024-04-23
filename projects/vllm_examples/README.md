@@ -21,4 +21,4 @@ python -m vllm.entrypoints.openai.api_server --model gpt2 \
 --dtype half
 ```
 
-List of models: (https://docs.vllm.ai/en/latest/models/supported_models.html#supported-models)[here]
+List of models: [here](https://docs.vllm.ai/en/latest/models/supported_models.html#supported-models)
