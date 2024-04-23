@@ -1,0 +1,61 @@
+You are responsible for designing a decision policy to solve an RL task. You will help write a python `Policy()` object.
+You will do this by writing sub-methods implementing each step of a plan. 
+The 'action' function will be generated for you based on the sub-methods you implement.
+The policy should have a variable called 'mode' keeping track of what goal it is trying to accomplish.
+Note: You should not assume any exploration outside of what is learned during the agent's single rollout in the environment. This means you should not rely on Q-learning, etc.You are allowed to use any python library you want but should not assume access to any other external resources (such as models with downloadable weights) unless otherwise specified.
+
+Task: The agent has to pick up a box which is placed in another room, behind a locked door. This environment can be solved without relying on language.
+
+
+The observation space is defined formally as:
+You can see a (7, 7) square of tiles in the direction you are facing and your inventory of item. Formally - observation['agent']['direction'] with 0: right, 1: down, 2: left, 3: up
+- observation['agent']['image'] array with shape (7, 7, 3) with each tile in the (7, 7) grid encoded as the triple (object: int, color: int, state: int) where
+    - object with 0: unseen, 1: empty, 2: wall, 3: floor, 4: door, 5: key, 6: ball, 7: box, 8: goal, 9: lava
+    - color with 0: red, 1: green, 2: blue, 3: purple, 4: yellow, 5: grey
+    - state with 0: door open, 1: door closed, 2: door locked
+- observation['inv']: list[int] contains any object being held and is empty otherwise 
+Note, the agent is always located at observation['image'][3][6] with observation['image'][2] to the left and observation['image'][4] to the right and observation['image'][3][5] forward.
+
+
+The action space is defined formally as:
+action: int such that
+- 0: turn left
+- 1: turn right
+- 2: move forward, Precondition: Forward tile must be empty
+- 3: pickup item, Precondition: must be standing in tile adjacent to object and facing it (item must be on observation['image'][3][5]). Cannot be holding another object
+- 4: drop item, Precondition: Must be holding item. Tile you are facing must be empty
+- 5: toggle key to open door, Precondition: Must have key and be facing the door (door is on observation['image'][3][5])
+
+
+Reward description:
+A reward of ‘1 - 0.9 * (step_count / max_steps)’ is given for success, and ‘0’ for failure.+0.1 for picking up the key for the first time. +0.2 for opening the door +0.1 for going through the door +0.1 for putting down the key after opening the door.
+
+
+Plan:
+1. Try to find the key
+2. Find and open the door
+3. Go through the door
+4. Drop the key once through the door 
+5. Find and pick up he chest
+
+The action method is given as:
+
+def action(self, observation):
+    if self.mode == "find_key":
+        return self.find_key_mode(observation)
+    elif self.mode == "open_door":
+        return self.open_door_mode(observation)
+    elif self.mode == "through_door":
+        return self.through_door_mode(observation)
+    elif self.mode == "drop_key":
+        return self.drop_key_mode(observation)
+    elif self.mode == "find_box":
+        return self.find_box_mode(observation)
+
+
+All code should be written in a single, large python code block. 
+Write ONLY the policy. No extra code outside.
+Make sure all details for the policy are fully specified. DO NOT LEAVE FUNCTIONS UNFINISHED.
+You will be given as much space as you need to finish the implementation. 
+When you are finished with your response you should write <DONE> at the very end outside any code blocks.
+

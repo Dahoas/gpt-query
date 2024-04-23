@@ -67,13 +67,14 @@ class GPT:
         if self.logging_path is not None:
             Logger.init(logging_path, identity=self.log_identity)
 
-    def synchronous_completion(self, samples: List[LLMRequest]):
+    def synchronous_completion(self, samples: List[LLMRequest], is_complete_keyword):
         responses = batch_completion(
                     model=self.model_name,
                     messages=[sample.to_list() for sample in samples],
                     temperature=self.temperature,
                     max_tokens=self.max_num_tokens,
                     api_base=self.model_endpoint,
+                    stop=is_complete_keyword,
                 )
         return responses
     
@@ -84,6 +85,7 @@ class GPT:
                     temperature=self.temperature,
                     max_tokens=self.max_num_tokens,
                     api_base=self.model_endpoint,
+                    stop=is_complete_keyword,
                 )
         return responses
     
@@ -112,10 +114,11 @@ class GPT:
                         messages += [Message(content=sample[output_key], role="assistant"), Message(content="", role="user")]
                     request = LLMRequest(messages=messages)
                     requests.append(request)
+                # Send requests
                 if self.asynchronous:
-                    responses = [asyncio.run(self.asynchronous_completion(request)) for request in requests]
+                    responses = [asyncio.run(self.asynchronous_completion(request, [is_complete_keyword])) for request in requests]
                 else:
-                    responses = self.synchronous_completion(requests)
+                    responses = self.synchronous_completion(requests, [is_complete_keyword])
                 # Extract responses from response format
                 responses = [response.choices[0].message.content for response in responses]
                 # Update output_key field
@@ -128,7 +131,9 @@ class GPT:
                 self.log(mb)
             if self.verbose:
                 print(f"Finished batch {i} of {len(mbs)} in {(time() - t) / 60} min. ({(time() - t) / ((i+1)*60*self.mb_size)} min. per sample)")
-        # Remove gptquery_ids
+        # Remove gptquery_ids and truncate after 'is_complete_keyworld'
         for sample in batch:
             sample.pop("gptquery_id")
+            if is_complete_keyword is not None:
+                sample[output_key] = sample[output_key].split(is_complete_keyword)[0]
         return batch

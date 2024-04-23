@@ -1,9 +1,13 @@
-prompts = {
-    "env_description": """\
-You are responsible for critiquing a decision policy to solve the following task: 
-The agent has to pick up a box which is placed in another room, behind a locked door. This environment can be solved without relying on language.
+You are responsible for designing a decision policy to solve an RL task. You will help write a python `Policy()` object.
+You will do this by writing sub-methods implementing each step of a plan. 
+The 'action' function will be generated for you based on the sub-methods you implement.
+The policy should have a variable called 'mode' keeping track of what goal it is trying to accomplish.
+Note: You should not assume any exploration outside of what is learned during the agent's single rollout in the environment. This means you should not rely on Q-learning, etc.You are allowed to use any python library you want but should not assume access to any other external resources (such as models with downloadable weights) unless otherwise specified.
 
-The observation space is defined formally as: 
+Task: The agent has to pick up a box which is placed in another room, behind a locked door. This environment can be solved without relying on language.
+
+
+The observation space is defined formally as:
 You can see a (7, 7) square of tiles in the direction you are facing and your inventory of item. Formally - observation['agent']['direction'] with 0: right, 1: down, 2: left, 3: up
 - observation['agent']['image'] array with shape (7, 7, 3) with each tile in the (7, 7) grid encoded as the triple (object: int, color: int, state: int) where
     - object with 0: unseen, 1: empty, 2: wall, 3: floor, 4: door, 5: key, 6: ball, 7: box, 8: goal, 9: lava
@@ -23,98 +27,82 @@ action: int such that
 - 5: toggle key to open door, Precondition: Must have key and be facing the door (door is on observation['image'][3][5])
 
 
-The rewards are defined formally as:
-A reward of ‘1 - 0.9 * (step_count / 300)’ is given for success  for picking up the box
-+0.1 for picking up the key for the first time. 
-+0.2 for opening the door, and +0.1 for going through the door, 
-+0.1 for putting down the key after opening the door.
-""",
+Reward description:
+A reward of ‘1 - 0.9 * (step_count / max_steps)’ is given for success, and ‘0’ for failure.+0.1 for picking up the key for the first time. +0.2 for opening the door +0.1 for going through the door +0.1 for putting down the key after opening the door.
 
-    "example_policy": """\
+
+Policy example:
+
 import numpy as np
 
 class Policy:
     def __init__(self):
-        self.memory = {
-            'key_picked_up': False,
-            'door_opened': False,
-            'door_opening': False,
-            'door_unlocked': False,
-            'box_picked_up': False
-        }
-
+        self.memory = {'key_picked_up': False, 'door_opened': False, 'door_opening': False, 'door_unlocked': False, 
+                       'box_picked_up': False}  # Persistent memory/state
+        
         self.steps = 0
-        self.actions = [0, 1, 2, 3, 4, 5]
-        self.explore_count = 0
-        self.explored_tiles = set()
-
+        
+        self.actions = [0, 1, 2, 3, 4, 5]  # Possible actions
+        self.explore_count = 0  # Count for exploration actions
+        
+        self.explored_tiles = set()  # To keep track of tiles explored
+        
     def act(self, observation):
         direction = observation['agent']['direction']
         image = observation['agent']['image']
         inv = observation['inv']
-
-        current_tile = image[3][6]
-        forward_tile = image[3][5]
-
+        
+        current_tile = image[3][6]  # Current tile agent is standing on
+        forward_tile = image[3][5]  # Tile agent is facing
+        
         if forward_tile[0] == 5 and 3 not in inv:
             return 3  # Pickup key
-
+        
         if forward_tile[0] == 4 and forward_tile[2] == 2 and 5 in inv and not self.memory['door_opening']:
             return 5  # Toggle key to open door
-
+        
         if forward_tile[0] == 7 and 0 in inv:
             return 3  # Pickup box if available
-
+        
         if forward_tile[0] not in [2, 9] and tuple(forward_tile) not in self.explored_tiles:
-            self.explored_tiles.add(tuple(forward_tile))
+            self.explored_tiles.add(tuple(forward_tile))  # Add the tile to explored set
             return 2  # Move forward if facing an unexplored tile
-
-        # If holding key, door is open, and facing the box, drop the key before picking up the box
-        if 5 in inv and self.memory['door_opened'] and forward_tile[0] == 7:
-            return 4  # Drop the key
-
+        
         # Exploration strategy
         self.explore_count += 1
-
+        
         if self.explore_count % 3 == 0:
             return np.random.choice([0, 1])  # Randomly turn left or right every 3rd step
-
+        
         if self.explore_count % 2 == 0:
             return 2  # Move forward every 2nd step
-
+        
         return 2  # Move forward by default
-
+        
     def update(self, observation, action, reward, next_observation):
         key_picked_up = self.memory['key_picked_up']
         door_opened = self.memory['door_opened']
         door_unlocked = self.memory['door_unlocked']
         door_opening = self.memory['door_opening']
         box_picked_up = self.memory['box_picked_up']
-
+        
         self.steps += 1
-
+        
         if not key_picked_up and reward == 0.1:
             self.memory['key_picked_up'] = True
-
         if not door_unlocked and reward == 0.3:
             self.memory['door_unlocked'] = True
-
         if not door_opening and reward == 0.2:
             self.memory['door_opening'] = True
-
         if not door_opened and reward == 0.1:
             self.memory['door_opened'] = True
-
         if not box_picked_up and reward == 0.9:
             self.memory['box_picked_up'] = True
-""",
 
-    "report_explanation": """\
-The above policy has been rolled out in the environment and a dataset of trajectories has been collected.
-You must now analyze this dataset to better understand the policy's behavior and environment dynamics.
-This is done by using reporting functions which capture parts of the policy's behavior and the environmental dynamics.
-Note: len(trajectory["observations"]) == len(trajectory["actions"]) + 1 because the observation after 
-the last action is also saved.
-""",
 
-}
+All code should be written in a single, large python code block. 
+Write ONLY the policy. No extra code outside.
+Make sure all details for the policy are fully specified. DO NOT LEAVE FUNCTIONS UNFINISHED.
+You will be given as much space as you need to finish the implementation. 
+When you are finished with your response you should write <DONE> at the very end outside any code blocks.
+
