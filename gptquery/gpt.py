@@ -130,7 +130,8 @@ class GPT:
 
     def __call__(self, batch: List[dict], 
                  output_key="response",
-                 is_complete_keywords=[],):
+                 is_complete_keywords=[],
+                 keep_keywords=False,):
         t = time()
         # Label with unique ids and add output_key field with empty string value
         batch = [{**sample, **{"gptquery_id": i, output_key: ""}} for i, sample in enumerate(batch)]
@@ -160,14 +161,15 @@ class GPT:
                     sample[output_key] = sample[output_key] + response
                 # Filter out completed samples
                 cur_mb = [sample for sample in cur_mb if not self.is_complete_response(sample[output_key], is_complete_keywords)]
+            # Remove gptquery_ids and truncate after 'is_complete_keywords'
+            for sample in mb:
+                sample.pop("gptquery_id")
+                for keyword in is_complete_keywords:
+                    if keyword in sample[output_key]:
+                        sample[output_key] = sample[output_key].split(keyword)[0]
+                        sample[output_key] += keyword if keep_keywords else ""
             if self.do_log:
                 self.log(mb)
             if self.verbose:
                 print(f"Finished batch {i} of {len(mbs)} in {(time() - t) / 60} min. ({(time() - t) / ((i+1)*60*self.mb_size)} min. per sample)")
-        # Remove gptquery_ids and truncate after 'is_complete_keywords'
-        for sample in batch:
-            sample.pop("gptquery_id")
-            for keyword in is_complete_keywords:
-                if keyword in is_complete_keywords:
-                    sample[output_key] = sample[output_key].split(keyword)[0]
         return batch
