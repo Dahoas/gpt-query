@@ -68,44 +68,15 @@ class GPT:
         if self.logging_path is not None:
             Logger.init(logging_path, identity=self.log_identity)
 
-        #if "azure" in self.model_name:
-        #    self.setup_azure()
-
-    def setup_azure(self):
-        # Currently only supports synchronous single sample requests for azure
-        assert not self.asynchronous
-        self.model_name = self.model_name.split("/")[1]
-        self.mb_size = 1
-        from openai import AzureOpenAI
-        self.client = AzureOpenAI(
-                        api_key=os.environ["azure_openai_api_key"],  
-                        api_version=os.environ["azure_api_version"],
-                        azure_endpoint=os.environ["azure_endpoint"],
-                        )
-        self.azure = True
-
-    def azure_completion(self, sample: LLMRequest, is_complete_keywords: List[str]):
-        response = self.client.chat.completions.create(
-            model=self.model_name,
-            messages=sample.to_list(),
-            temperature=self.temperature,
-            max_tokens=self.max_num_tokens,
-            stop=is_complete_keywords,
-        )
-        return response
-
     def synchronous_completion(self, samples: List[LLMRequest], is_complete_keywords: List[str]):
-        if self.azure:
-            responses = [self.azure_completion(samples[0], is_complete_keywords)]
-        else:
-            responses = batch_completion(
-                        model=self.model_name,
-                        messages=[sample.to_list() for sample in samples],
-                        temperature=self.temperature,
-                        max_tokens=self.max_num_tokens,
-                        api_base=self.model_endpoint,
-                        stop=is_complete_keywords,
-                    )
+        responses = batch_completion(
+                    model=self.model_name,
+                    messages=[sample.to_list() for sample in samples],
+                    temperature=self.temperature,
+                    max_tokens=self.max_num_tokens,
+                    api_base=self.model_endpoint,
+                    stop=is_complete_keywords,
+                )
         return responses
     
     async def asynchronous_completion(self, sample: LLMRequest, is_complete_keywords: List[str]):
