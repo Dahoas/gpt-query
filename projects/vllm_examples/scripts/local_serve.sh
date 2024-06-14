@@ -1,5 +1,5 @@
 python -m vllm.entrypoints.openai.api_server \
-    --model TechxGenus/Meta-Llama-3-70B-AWQ \
+    --model casperhansen/llama-3-70b-instruct-awq \
     --dtype=half \
-    --tensor-parallel-size=4 \
+    --tensor-parallel-size=1 \
     --quantization awq
