@@ -14,6 +14,7 @@ from litellm import batch_completion, acompletion
 
 def configure_keys(keys: dict):
     for name, key in keys.items():
+        print(f"Setting {name} to {key}")
         if name == "OPENAI_API_KEY":
             os.environ["OPENAI_API_KEY"] = key
         elif name == "GOOGLE_API_KEY":
@@ -26,8 +27,7 @@ def configure_keys(keys: dict):
         elif name == "ANTHROPIC_API_KEY":
             os.environ["ANTHROPIC_API_KEY"] = key
         else:
-            raise ValueError(f"Unknown key: {name}!!!")
-
+            os.environ[name] = key
 
 class GPT:
     def __init__(self, 
@@ -42,7 +42,7 @@ class GPT:
                  verbose=False,
                  asynchronous=False,
                  model_endpoint=None,
-                 max_interactions=2,):
+                 max_interactions=1,):
         if oai_key is not None:
             keys["OPENAI_API_KEY"] = oai_key
         configure_keys(keys)
@@ -63,6 +63,7 @@ class GPT:
         self.asynchronous = asynchronous
         self.model_endpoint = model_endpoint
         self.max_interactions = max_interactions
+        self.azure = False
 
         if self.logging_path is not None:
             Logger.init(logging_path, identity=self.log_identity)
@@ -100,7 +101,8 @@ class GPT:
 
     def __call__(self, batch: List[dict], 
                  output_key="response",
-                 is_complete_keywords=[],):
+                 is_complete_keywords=[],
+                 keep_keywords=False,):
         t = time()
         # Label with unique ids and add output_key field with empty string value
         batch = [{**sample, **{"gptquery_id": i, output_key: ""}} for i, sample in enumerate(batch)]
@@ -130,14 +132,15 @@ class GPT:
                     sample[output_key] = sample[output_key] + response
                 # Filter out completed samples
                 cur_mb = [sample for sample in cur_mb if not self.is_complete_response(sample[output_key], is_complete_keywords)]
+            # Remove gptquery_ids and truncate after 'is_complete_keywords'
+            for sample in mb:
+                sample.pop("gptquery_id")
+                for keyword in is_complete_keywords:
+                    if keyword in sample[output_key]:
+                        sample[output_key] = sample[output_key].split(keyword)[0]
+                        sample[output_key] += keyword if keep_keywords else ""
             if self.do_log:
                 self.log(mb)
             if self.verbose:
                 print(f"Finished batch {i} of {len(mbs)} in {(time() - t) / 60} min. ({(time() - t) / ((i+1)*60*self.mb_size)} min. per sample)")
-        # Remove gptquery_ids and truncate after 'is_complete_keywords'
-        for sample in batch:
-            sample.pop("gptquery_id")
-            for keyword in is_complete_keywords:
-                if keyword in is_complete_keywords:
-                    sample[output_key] = sample[output_key].split(keyword)[0]
         return batch

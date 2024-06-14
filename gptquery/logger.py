@@ -23,9 +23,11 @@ class Logger:
     def log(cls, dicts: List[dict], identity="default"):
         assert identity in cls.log_folders
         assert identity != "default" or len(cls.log_folders) < 2
-        assert type(dicts) is list
+        assert type(dicts) is list or type(dicts) is dict
         log_folder = cls.log_folders[identity]
         with open(f'{log_folder}', 'a+') as f:
+            if type(dicts) is dict:
+                dicts = [dicts]
             for dict_t in dicts:
                 assert type(dict_t) is dict
                 try:
