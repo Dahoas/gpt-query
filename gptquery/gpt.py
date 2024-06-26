@@ -141,6 +141,7 @@ class GPT:
             # Remove gptquery_ids and truncate after 'is_complete_keywords'
             for sample in mb:
                 sample.pop("gptquery_id")
+                sample.pop(prompt_key)
                 for keyword in is_complete_keywords:
                     if keyword in sample[output_key]:
                         sample[output_key] = sample[output_key].split(keyword)[0]
