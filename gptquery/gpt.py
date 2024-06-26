@@ -123,6 +123,7 @@ class GPT:
                         raise NotImplementedError
                     request = LLMRequest(messages=messages)
                     requests.append(request)
+                    assert prompt_key not in sample
                     sample[prompt_key] = prompt
                 # Send requests
                 if self.asynchronous:
