@@ -99,7 +99,8 @@ class GPT:
     def log(self, mb):
         Logger.log(mb, identity=self.log_identity)
 
-    def __call__(self, batch: List[dict], 
+    def __call__(self, batch: List[dict],
+                 prompt_key="prompt",
                  output_key="response",
                  is_complete_keywords=[],
                  keep_keywords=False,):
@@ -114,11 +115,15 @@ class GPT:
                 # Construct LLM requests
                 requests = []
                 for sample in cur_mb:
-                    messages = [Message(content=self.task_prompt_text.format(**sample), role="user")]
+                    prompt = self.task_prompt_text.format(**sample)
+                    messages = [Message(content=prompt, role="user")]
                     if len(sample[output_key]) > 0:
                         messages += [Message(content=sample[output_key], role="assistant"), Message(content="", role="user")]
+                        # TODO(dahoas): how to update prompts if given multiple messages?
+                        raise NotImplementedError
                     request = LLMRequest(messages=messages)
                     requests.append(request)
+                    sample[prompt_key] = prompt
                 # Send requests
                 if self.asynchronous:
                     responses = [asyncio.run(self.asynchronous_completion(request, is_complete_keywords)) for request in requests]
