@@ -1,6 +1,7 @@
 import os
 import numpy as np
 from collections import defaultdict
+from typing import Union
 
 
 ######## gpt.py utils ########
@@ -51,18 +52,22 @@ def jsonl_to_dict(l):
 
 ######## Logger utils ########
 
-def recursively_serialize(d: dict):
+def recursively_serialize(d: Union[list, dict]):
     primitives = [bool, int, float, str]
     containers = [list, dict]
     converter = {
         np.ndarray: list,
+        set: list,
     }
-    for k, v in d.items():
-        if type(v) in primitives:
-            d[k] = v
-        elif type(v) in containers:
-            d[k] = recursively_serialize(v)
-        else:
-            d[k] = converter.get(type(v), str)(v)
+    if isinstance(d, list):
+        d = [recursively_serialize(e) for e in d]
+    elif isinstance(d, dict):
+        for k, v in d.items():
+            if type(v) in primitives:
+                d[k] = v
+            elif type(v) in containers:
+                d[k] = recursively_serialize(v)
+            else:
+                d[k] = converter.get(type(v), str)(v)
     return d
     

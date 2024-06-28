@@ -100,11 +100,16 @@ class GPT:
         Logger.log(mb, identity=self.log_identity)
 
     def __call__(self, batch: List[dict],
-                 prompt_key="prompt",
+                 prompt_key=None,
                  output_key="response",
                  is_complete_keywords=[],
                  keep_keywords=False,):
         t = time()
+        if prompt_key is None:
+            prompt_key = "prompt"
+            remove_prompt_key = True
+        else:
+            remove_prompt_key = False
         # Label with unique ids and add output_key field with empty string value
         batch = [{**sample, **{"gptquery_id": i, output_key: ""}} for i, sample in enumerate(batch)]
         mbs = chunk(batch, self.mb_size)
@@ -123,7 +128,6 @@ class GPT:
                         raise NotImplementedError
                     request = LLMRequest(messages=messages)
                     requests.append(request)
-                    assert prompt_key not in sample
                     sample[prompt_key] = prompt
                 # Send requests
                 if self.asynchronous:
@@ -141,7 +145,8 @@ class GPT:
             # Remove gptquery_ids and truncate after 'is_complete_keywords'
             for sample in mb:
                 sample.pop("gptquery_id")
-                sample.pop(prompt_key)
+                if remove_prompt_key:
+                    sample.pop(prompt_key)
                 for keyword in is_complete_keywords:
                     if keyword in sample[output_key]:
                         sample[output_key] = sample[output_key].split(keyword)[0]
