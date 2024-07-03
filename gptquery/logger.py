@@ -31,9 +31,10 @@ class Logger:
             for dict_t in dicts:
                 assert type(dict_t) is dict
                 try:
-                    json.dump(dict_t, f)
+                    # test whether dict needs to be serialized
+                    json.loads(json.dumps(dict_t))
                 except TypeError:
                     # Try casting non-primitive fields to a string
                     dict_t = recursively_serialize(deepcopy(dict_t))
-                    json.dump(dict_t, f)
+                json.dump(dict_t, f)
                 f.write('\n')
