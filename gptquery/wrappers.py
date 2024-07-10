@@ -1,4 +1,5 @@
-from gptquery.pipelines import InferenceComponent
+from gptquery.pipelines import InferenceComponent, InferencePipeline
+from gptquery.composer import InferenceComposer
 from gptquery.utils import dict_to_jsonl, jsonl_to_dict
 from typing import List, Dict, Any
 
@@ -14,3 +15,15 @@ class JsonlInferenceComponent(InferenceComponent):
         jsonl = dict_to_jsonl(data)
         jsonl = self.run(jsonl)
         return jsonl_to_dict(jsonl), start
+    
+
+class ComposerWrapper(InferenceComposer):
+    """
+    Wraps pipeline in dummy parent pipeline executing once.
+    Useful when top level pipeline has 'max_steps' > 1
+    """
+    def __init__(self, inference_pipeline):
+        wrapper_pipeline = InferencePipeline(name="composer_wrapper_dummy",
+                                             max_steps=1,
+                                             inference_components=[inference_pipeline])
+        super().__init__(wrapper_pipeline)
