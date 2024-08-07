@@ -1,7 +1,11 @@
 import os
 import numpy as np
 from collections import defaultdict
-from typing import Union
+from typing import Union, List
+import torch
+import subprocess
+import pathlib
+import socket
 
 
 ######## gpt.py utils ########
@@ -70,4 +74,49 @@ def recursively_serialize(d: Union[list, dict]):
             else:
                 d[k] = converter.get(type(v), str)(v)
     return d
-    
+
+
+######## VLLM utils ########
+
+def setup_models(model_name: str,
+                 num_servers: int,
+                 gpus_per_model: int,
+                 logging_folder: str,
+                 default_port: int=8000,
+                 cuda_list: List[List[int]]=[],
+                 limit_memory=None,
+                 host=True,):
+    server_params = []
+    pathlib.Path(logging_folder).mkdir(exist_ok=True, parents=True)
+    if len(cuda_list) > 0:
+        assert len(cuda_list) == num_servers
+        cuda_list = [[str(e) for e in l] for l in cuda_list]
+    else:
+        assert gpus_per_model * num_servers <= torch.cuda.device_count()
+    for ind in range(num_servers):
+        port = default_port + ind
+        if len(cuda_list) > 0:
+            gpus = ",".join(cuda_list[ind])
+        else:
+            gpus = ",".join([str(i + gpus_per_model * ind) for i in range(gpus_per_model)])
+        command = (
+                f"CUDA_VISIBLE_DEVICES={gpus} python -m vllm.entrypoints.openai.api_server "
+                f"--model {model_name} "
+                "--dtype=half "
+                f"--port {port} "
+            )
+        if gpus_per_model > 1:
+            command += f"--tensor-parallel-size={gpus_per_model} "
+        if limit_memory:
+            command += f"--gpu-memory-utilization={limit_memory} "
+        print(f"Spinning up {model_name} on {gpus}...")
+        logging_path = os.path.join(logging_folder, f"vllm_{ind}.log")
+        if host:
+            with open(logging_path, "w") as f:
+                subprocess.Popen(command, shell=True, stdout=f)
+        server_params.append({
+            "model_name": model_name,
+            "hostname": socket.gethostname(),
+            "port": port,
+        })
+    return server_params
