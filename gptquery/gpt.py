@@ -4,6 +4,8 @@ from typing import List
 from time import time
 from dataclasses import dataclass, asdict
 import uuid
+from time import sleep
+import threading
 
 from gptquery.utils import chunk
 from gptquery.logger import Logger
@@ -42,7 +44,8 @@ class GPT:
                  verbose=False,
                  asynchronous=False,
                  model_endpoint=None,
-                 max_interactions=1,):
+                 max_interactions=1,
+                 retry_wait_time=None,):
         if oai_key is not None:
             keys["OPENAI_API_KEY"] = oai_key
         configure_keys(keys)
@@ -64,6 +67,7 @@ class GPT:
         self.model_endpoint = model_endpoint
         self.max_interactions = max_interactions
         self.azure = False
+        self.retry_wait_time = retry_wait_time
 
         if self.logging_path is not None:
             Logger.init(logging_path, identity=self.log_identity)
@@ -130,12 +134,25 @@ class GPT:
                     requests.append(request)
                     sample[prompt_key] = prompt
                 # Send requests
-                if self.asynchronous:
-                    responses = [asyncio.run(self.asynchronous_completion(request, is_complete_keywords)) for request in requests]
-                else:
-                    responses = self.synchronous_completion(requests, is_complete_keywords)
-                # Extract responses from response format
-                responses = [response.choices[0].message.content for response in responses]
+                try:
+                    if self.asynchronous:
+                        responses = [asyncio.run(self.asynchronous_completion(request, is_complete_keywords)) for request in requests]
+                    else:
+                        responses = self.synchronous_completion(requests, is_complete_keywords)
+                    # Extract responses from response format
+                    responses = [response.choices[0].message.content for response in responses]
+                except AttributeError as e:
+                    if self.retry_wait_time:
+                        print("Error encountered, sleeping...")
+                        sleep(self.retry_wait_time)
+                        if self.asynchronous:
+                            responses = [asyncio.run(self.asynchronous_completion(request, is_complete_keywords)) for request in requests]
+                        else:
+                            responses = self.synchronous_completion(requests, is_complete_keywords)
+                        # Extract responses from response format
+                        responses = [response.choices[0].message.content for response in responses]
+                    else:
+                        raise e
                 # Update output_key field
                 for sample, response in zip(cur_mb, responses):
                     # Combine intermediate response with update by simple concatenation
@@ -156,3 +173,40 @@ class GPT:
             if self.verbose:
                 print(f"Finished batch {i} of {len(mbs)} in {(time() - t) / 60} min. ({(time() - t) / ((i+1)*60*self.mb_size)} min. per sample)")
         return batch
+
+
+# TODO: use asyncio
+class GPTRouter:
+    """
+    Routes request to multiple GPT endpoints.
+    """
+    def __init__(self, 
+                 gpts: List[GPT],):
+        self.gpts = gpts
+
+    def __call(self, 
+                batch: List[dict], 
+                gpt: GPT,
+                results: dict,
+                rank: int,
+                **kwargs):
+        result = gpt(batch, **kwargs)
+        results[rank] = result
+
+    def __call__(self, 
+                 batch: List[dict],
+                 **kwargs):
+        """
+        Naively splits batch among all gpts.
+        """
+        mb_size = (len(batch) + len(self.gpts) - 1) // len(self.gpts)
+        mbs = chunk(batch, mb_size)
+        results = {i: None for i in range(len(mbs))}
+        threads = []
+        for i, (mb, gpt) in enumerate(zip(mbs, self.gpts)):
+            t = threading.Thread(target=self.__call, args=(mb, gpt, results, i))
+            threads.append(t)
+            t.start()
+        for t in threads:
+            t.join()
+        return [e for l in results.values() for e in l]
