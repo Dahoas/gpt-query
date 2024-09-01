@@ -95,7 +95,7 @@ class GPT:
                  keep_keywords=False,):
         t = time()
         if prompt_key is None:
-            prompt_key = "prompt"
+            prompt_key = "gptquery_prompt"
             remove_prompt_key = True
         else:
             remove_prompt_key = False
