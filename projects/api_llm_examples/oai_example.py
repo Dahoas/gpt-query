@@ -10,8 +10,7 @@ gpt = GPT(model_name="gpt-3.5-turbo",
           task_prompt_text=task_prompt_text,
           oai_key=oai_key,
           log=False,
-          max_num_tokens=20,
-          asynchronous=True,)
+          max_num_tokens=20,)
 
 input = [{"question": "What is the meaning of life?"}, {"question": "What's in my pocket?"}]
 output = gpt(input)

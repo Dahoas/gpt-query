@@ -1,5 +1,4 @@
 import os
-import asyncio
 from typing import List
 from time import time
 from dataclasses import dataclass, asdict
@@ -42,7 +41,6 @@ class GPT:
                  oai_key=None,
                  keys=dict(),
                  verbose=False,
-                 asynchronous=False,
                  model_endpoint=None,
                  max_interactions=1,
                  retry_wait_time=None,):
@@ -63,10 +61,8 @@ class GPT:
         self.do_log = logging_path is not None
         self.log_identity = str(uuid.uuid4())
         self.verbose = verbose
-        self.asynchronous = asynchronous
         self.model_endpoint = model_endpoint
         self.max_interactions = max_interactions
-        self.azure = False
         self.retry_wait_time = retry_wait_time
 
         if self.logging_path is not None:
@@ -76,17 +72,6 @@ class GPT:
         responses = batch_completion(
                     model=self.model_name,
                     messages=[sample.to_list() for sample in samples],
-                    temperature=self.temperature,
-                    max_tokens=self.max_num_tokens,
-                    api_base=self.model_endpoint,
-                    stop=is_complete_keywords,
-                )
-        return responses
-    
-    async def asynchronous_completion(self, sample: LLMRequest, is_complete_keywords: List[str]):
-        responses = await acompletion(
-                    model=self.model_name,
-                    messages=sample.to_list(),
                     temperature=self.temperature,
                     max_tokens=self.max_num_tokens,
                     api_base=self.model_endpoint,
@@ -135,20 +120,14 @@ class GPT:
                     sample[prompt_key] = prompt
                 # Send requests
                 try:
-                    if self.asynchronous:
-                        responses = [asyncio.run(self.asynchronous_completion(request, is_complete_keywords)) for request in requests]
-                    else:
-                        responses = self.synchronous_completion(requests, is_complete_keywords)
+                    responses = self.synchronous_completion(requests, is_complete_keywords)
                     # Extract responses from response format
                     responses = [response.choices[0].message.content for response in responses]
                 except AttributeError as e:
                     if self.retry_wait_time:
                         print("Error encountered, sleeping...")
                         sleep(self.retry_wait_time)
-                        if self.asynchronous:
-                            responses = [asyncio.run(self.asynchronous_completion(request, is_complete_keywords)) for request in requests]
-                        else:
-                            responses = self.synchronous_completion(requests, is_complete_keywords)
+                        responses = self.synchronous_completion(requests, is_complete_keywords)
                         # Extract responses from response format
                         responses = [response.choices[0].message.content for response in responses]
                     else:
