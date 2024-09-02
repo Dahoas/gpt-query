@@ -74,8 +74,8 @@ class GPT:
         self.offline = offline
         self.chat = chat
         
-        # offline inference currently only supports completions
-        assert not( self.offline and self.chat)
+        # TODO: support remote completion API
+        assert self.offline or self.chat
         
         # Load model if offline
         if self.offline:
@@ -90,13 +90,17 @@ class GPT:
 
         if self.logging_path is not None:
             Logger.init(logging_path, identity=self.log_identity)
+            
+    def offline_apply_chat_template(self, message: List[dict]):
+        return self.llm.llm_engine.tokenizer.tokenizer.apply_chat_template(message, tokenize=False, add_generation_prompt=True)
 
     def synchronous_completion(self, samples: List[LLMRequest], is_complete_keywords: List[str]):
         if self.offline:
+            inputs = self.offline_apply_chat_template([sample.to_list() for sample in samples]) if self.chat else [sample.to_prompt() for sample in samples]
             sampling_params = SamplingParams(temperature=self.temperature,
                                              max_tokens=self.max_num_tokens,
                                              stop=is_complete_keywords,)
-            responses = self.llm.generate([sample.to_prompt() for sample in samples],
+            responses = self.llm.generate(inputs,
                                       sampling_params=sampling_params)
         else:
             responses = batch_completion(
