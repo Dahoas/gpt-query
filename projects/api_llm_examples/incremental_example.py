@@ -10,7 +10,6 @@ gpt = GPT(model_name="gpt-3.5-turbo",
           oai_key=oai_key,
           log=False,
           max_num_tokens=20,
-          asynchronous=False,
           max_interactions=3,)
 
 is_complete_keyword = "<DONE>"

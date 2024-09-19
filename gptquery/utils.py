@@ -109,9 +109,9 @@ def setup_models(model_name: str,
             command += f"--tensor-parallel-size={gpus_per_model} "
         if limit_memory:
             command += f"--gpu-memory-utilization={limit_memory} "
-        print(f"Spinning up {model_name} on {gpus}...")
         logging_path = os.path.join(logging_folder, f"vllm_{ind}.log")
         if host:
+            print(f"Spinning up {model_name} on {gpus}...")
             with open(logging_path, "w") as f:
                 subprocess.Popen(command, shell=True, stdout=f)
         server_params.append({

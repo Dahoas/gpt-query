@@ -10,8 +10,7 @@ gpt = GPT(model_name="claude-3-haiku-20240307",
           task_prompt_text=task_prompt_text,
           keys={"ANTHROPIC_API_KEY": anthropic_key},
           log=False,
-          max_num_tokens=20,
-          asynchronous=False,)
+          max_num_tokens=20,)
 
 input = [{"question": "What is the meaning of life?"}, {"question": "What's in my pocket?"}]
 output = gpt(input)

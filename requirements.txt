@@ -1,2 +1,2 @@
 litellm
-vllm
+vllm==0.5.3

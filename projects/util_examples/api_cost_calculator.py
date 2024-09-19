@@ -24,7 +24,8 @@ model_tokens =  {
     "gemini-nano": {"input_token": None, "output_token": None},  
     "gemini-pro": {"input_token": 4 * 0.000125 / THOUSAND, "output_token": 4 * 0.000375 / THOUSAND},  # Need to convert pricing from characters to tokens: 1 tok ~ 4 chars
     "gemini-ultra": {"input_token": None, "output_token": None},
-    "gemini-1.5": {"input_token": None, "output_token": None},
+    "gemini-1.5-pro": {"input_token": 4 * 0.00125 / THOUSAND, "output_token": 4 * 0.00375 / THOUSAND},
+    "gemini-1.5-flash": {"input_token": 4 * 0.000125 / THOUSAND, "output_token": 4 * 0.000375 / THOUSAND},
     "palm-2": {"input_token": 4 * 0.00020 / THOUSAND, "output_token": 4 * 0.0004 / THOUSAND},
     "codey": {"input_token": 4 * 0.00025 / THOUSAND, "output_token": 4 * 0.0005 / THOUSAND},
 }

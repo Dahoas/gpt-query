@@ -1,5 +1,4 @@
 import os
-import asyncio
 from typing import List
 from time import time
 from dataclasses import dataclass, asdict
@@ -12,6 +11,7 @@ from gptquery.logger import Logger
 from gptquery.datatypes import Message, LLMRequest
 
 from litellm import batch_completion, acompletion
+from vllm import LLM, SamplingParams
 
 
 def configure_keys(keys: dict):
@@ -31,21 +31,26 @@ def configure_keys(keys: dict):
         else:
             os.environ[name] = key
 
+# TODO: handle completions API
 class GPT:
     def __init__(self, 
                  model_name,
                  temperature=0.7, 
                  max_num_tokens=4096, 
-                 mb_size=10,
+                 mb_size=8,
                  task_prompt_text=None,
                  logging_path=None,
                  oai_key=None,
                  keys=dict(),
                  verbose=False,
-                 asynchronous=False,
                  model_endpoint=None,
                  max_interactions=1,
-                 retry_wait_time=None,):
+                 retry_wait_time=None,
+                 offline=False,
+                 tensor_parallel_size=None,
+                 dtype=None,
+                 quantization=None,
+                 chat=True,):
         if oai_key is not None:
             keys["OPENAI_API_KEY"] = oai_key
         configure_keys(keys)
@@ -63,36 +68,56 @@ class GPT:
         self.do_log = logging_path is not None
         self.log_identity = str(uuid.uuid4())
         self.verbose = verbose
-        self.asynchronous = asynchronous
         self.model_endpoint = model_endpoint
         self.max_interactions = max_interactions
-        self.azure = False
         self.retry_wait_time = retry_wait_time
+        self.offline = offline
+        self.chat = chat
+        
+        # TODO: support remote completion API
+        assert self.offline or self.chat
+        
+        # Load model if offline
+        if self.offline:
+            # TODO: Figure out how to do multi-model, multi-gpu offline inference
+            # in the same python process
+            assert tensor_parallel_size is not None
+            self.llm = LLM(model=self.model_name,
+                           tokenizer=self.model_name,
+                           tensor_parallel_size=tensor_parallel_size,
+                           dtype=dtype,
+                           quantization=quantization,)
 
         if self.logging_path is not None:
             Logger.init(logging_path, identity=self.log_identity)
+            
+    def offline_apply_chat_template(self, message: List[dict]):
+        return self.llm.llm_engine.tokenizer.tokenizer.apply_chat_template(message, tokenize=False, add_generation_prompt=True)
 
     def synchronous_completion(self, samples: List[LLMRequest], is_complete_keywords: List[str]):
-        responses = batch_completion(
-                    model=self.model_name,
-                    messages=[sample.to_list() for sample in samples],
-                    temperature=self.temperature,
-                    max_tokens=self.max_num_tokens,
-                    api_base=self.model_endpoint,
-                    stop=is_complete_keywords,
-                )
+        if self.offline:
+            inputs = self.offline_apply_chat_template([sample.to_list() for sample in samples]) if self.chat else [sample.to_prompt() for sample in samples]
+            sampling_params = SamplingParams(temperature=self.temperature,
+                                             max_tokens=self.max_num_tokens,
+                                             stop=is_complete_keywords,)
+            responses = self.llm.generate(inputs,
+                                      sampling_params=sampling_params)
+        else:
+            responses = batch_completion(
+                        model=self.model_name,
+                        messages=[sample.to_list() for sample in samples],
+                        temperature=self.temperature,
+                        max_tokens=self.max_num_tokens,
+                        api_base=self.model_endpoint,
+                        stop=is_complete_keywords,
+                    )
         return responses
     
-    async def asynchronous_completion(self, sample: LLMRequest, is_complete_keywords: List[str]):
-        responses = await acompletion(
-                    model=self.model_name,
-                    messages=sample.to_list(),
-                    temperature=self.temperature,
-                    max_tokens=self.max_num_tokens,
-                    api_base=self.model_endpoint,
-                    stop=is_complete_keywords,
-                )
-        return responses
+    def extract_responses(self, responses):
+        if self.offline:
+            return [response.outputs[0].text for response in responses]
+        else:
+            return [response.choices[0].message.content for response in responses]
     
     def is_complete_response(self, response, is_complete_keywords):
         if len(is_complete_keywords) == 0:
@@ -110,7 +135,7 @@ class GPT:
                  keep_keywords=False,):
         t = time()
         if prompt_key is None:
-            prompt_key = "prompt"
+            prompt_key = "gptquery_prompt"
             remove_prompt_key = True
         else:
             remove_prompt_key = False
@@ -135,22 +160,16 @@ class GPT:
                     sample[prompt_key] = prompt
                 # Send requests
                 try:
-                    if self.asynchronous:
-                        responses = [asyncio.run(self.asynchronous_completion(request, is_complete_keywords)) for request in requests]
-                    else:
-                        responses = self.synchronous_completion(requests, is_complete_keywords)
+                    responses = self.synchronous_completion(requests, is_complete_keywords)
                     # Extract responses from response format
-                    responses = [response.choices[0].message.content for response in responses]
+                    responses = self.extract_responses(responses)
                 except AttributeError as e:
                     if self.retry_wait_time:
                         print("Error encountered, sleeping...")
                         sleep(self.retry_wait_time)
-                        if self.asynchronous:
-                            responses = [asyncio.run(self.asynchronous_completion(request, is_complete_keywords)) for request in requests]
-                        else:
-                            responses = self.synchronous_completion(requests, is_complete_keywords)
+                        responses = self.synchronous_completion(requests, is_complete_keywords)
                         # Extract responses from response format
-                        responses = [response.choices[0].message.content for response in responses]
+                        responses = self.extract_responses(responses)
                     else:
                         raise e
                 # Update output_key field

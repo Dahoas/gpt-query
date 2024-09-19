@@ -17,6 +17,10 @@ class LLMRequest:
     def to_list(self) -> List[dict]:
         return [asdict(message) for message in self.messages]
     
+    def to_prompt(self) -> str:
+        assert len(self.messages) == 1
+        return self.messages[0].content
+    
 
 ######## composer.py datatypes ########
 
