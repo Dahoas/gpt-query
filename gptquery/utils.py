@@ -85,7 +85,8 @@ def setup_models(model_name: str,
                  default_port: int=8000,
                  cuda_list: List[List[int]]=[],
                  limit_memory=None,
-                 host=True,):
+                 host=True,
+                 max_model_len=None,):
     server_params = []
     pathlib.Path(logging_folder).mkdir(exist_ok=True, parents=True)
     if len(cuda_list) > 0:
@@ -109,6 +110,8 @@ def setup_models(model_name: str,
             command += f"--tensor-parallel-size={gpus_per_model} "
         if limit_memory:
             command += f"--gpu-memory-utilization={limit_memory} "
+        if max_model_len:
+            command += f"--max-model-len {max_model_len}"
         logging_path = os.path.join(logging_folder, f"vllm_{ind}.log")
         if host:
             print(f"Spinning up {model_name} on {gpus}...")

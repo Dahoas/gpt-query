@@ -36,7 +36,8 @@ class GPT:
     def __init__(self, 
                  model_name,
                  temperature=0.7, 
-                 max_num_tokens=4096, 
+                 max_num_tokens=4096,
+                 max_model_len=None,
                  mb_size=8,
                  task_prompt_text=None,
                  logging_path=None,
@@ -58,6 +59,7 @@ class GPT:
         self.model_name = model_name
         self.temperature = temperature
         self.max_num_tokens = max_num_tokens
+        self.max_model_len = max_model_len
         self.mb_size = mb_size
         self.request_timeout = max(15, int(max_num_tokens / 15)) if "gpt-3.5" in model_name else max(20, int(max_num_tokens / 10)) # noqa : E501
 
@@ -86,7 +88,8 @@ class GPT:
                            tokenizer=self.model_name,
                            tensor_parallel_size=tensor_parallel_size,
                            dtype=dtype,
-                           quantization=quantization,)
+                           quantization=quantization,
+                           max_model_len=max_model_len,)
 
         if self.logging_path is not None:
             Logger.init(logging_path, identity=self.log_identity)
