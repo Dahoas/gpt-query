@@ -51,7 +51,8 @@ class GPT:
                  tensor_parallel_size=None,
                  dtype=None,
                  quantization=None,
-                 chat=True,):
+                 chat=True,
+                 K=1,):
         if oai_key is not None:
             keys["OPENAI_API_KEY"] = oai_key
         configure_keys(keys)
@@ -75,6 +76,7 @@ class GPT:
         self.retry_wait_time = retry_wait_time
         self.offline = offline
         self.chat = chat
+        self.K = K
         
         # TODO: support remote completion API
         assert self.offline or self.chat
@@ -102,7 +104,8 @@ class GPT:
             inputs = self.offline_apply_chat_template([sample.to_list() for sample in samples]) if self.chat else [sample.to_prompt() for sample in samples]
             sampling_params = SamplingParams(temperature=self.temperature,
                                              max_tokens=self.max_num_tokens,
-                                             stop=is_complete_keywords,)
+                                             stop=is_complete_keywords,
+                                             n=self.K,)
             responses = self.llm.generate(inputs,
                                       sampling_params=sampling_params)
         else:
@@ -113,14 +116,15 @@ class GPT:
                         max_tokens=self.max_num_tokens,
                         api_base=self.model_endpoint,
                         stop=is_complete_keywords,
+                        n=self.K,
                     )
         return responses
     
     def extract_responses(self, responses):
         if self.offline:
-            return [response.outputs[0].text for response in responses]
+            return [[response.outputs[i].text for i in range(self.K)] for response in responses]
         else:
-            return [response.choices[0].message.content for response in responses]
+            return [[response.choices[i].message.content for i in range(self.K)] for response in responses]
     
     def is_complete_response(self, response, is_complete_keywords):
         if len(is_complete_keywords) == 0:
@@ -135,7 +139,9 @@ class GPT:
                  prompt_key=None,
                  output_key="response",
                  is_complete_keywords=[],
-                 keep_keywords=False,):
+                 keep_keywords=False,
+                 K=1,):
+        self.K = K
         t = time()
         if prompt_key is None:
             prompt_key = "gptquery_prompt"
@@ -143,7 +149,7 @@ class GPT:
         else:
             remove_prompt_key = False
         # Label with unique ids and add output_key field with empty string value
-        batch = [{**sample, **{"gptquery_id": i, output_key: ""}} for i, sample in enumerate(batch)]
+        batch = [{**sample, **{"gptquery_id": i, output_key: self.K*[""]}} for i, sample in enumerate(batch)]
         mbs = chunk(batch, self.mb_size)
         for i, mb in enumerate(mbs):    
             cur_mb = mb
@@ -154,7 +160,7 @@ class GPT:
                 for sample in cur_mb:
                     prompt = self.task_prompt_text.format(**sample)
                     messages = [Message(content=prompt, role="user")]
-                    if len(sample[output_key]) > 0:
+                    if len(sample[output_key][0]) > 0:
                         messages += [Message(content=sample[output_key], role="assistant"), Message(content="", role="user")]
                         # TODO(dahoas): how to update prompts if given multiple messages?
                         raise NotImplementedError
@@ -178,18 +184,24 @@ class GPT:
                 # Update output_key field
                 for sample, response in zip(cur_mb, responses):
                     # Combine intermediate response with update by simple concatenation
-                    sample[output_key] = sample[output_key] + response
+                    sample[output_key] = [output_i + response_i for output_i, response_i in zip(sample[output_key], response)]
                 # Filter out completed samples
-                cur_mb = [sample for sample in cur_mb if not self.is_complete_response(sample[output_key], is_complete_keywords)]
+                # TODO: do not yet support keyword stopping for K > 1
+                assert not (self.K > 1 and len(is_complete_keywords) > 0)
+                if self.K == 1:
+                    cur_mb = [sample for sample in cur_mb if not self.is_complete_response(sample[output_key], is_complete_keywords)]
             # Remove gptquery_ids and truncate after 'is_complete_keywords'
             for sample in mb:
                 sample.pop("gptquery_id")
                 if remove_prompt_key:
                     sample.pop(prompt_key)
-                for keyword in is_complete_keywords:
-                    if keyword in sample[output_key]:
-                        sample[output_key] = sample[output_key].split(keyword)[0]
-                        sample[output_key] += keyword if keep_keywords else ""
+                # If K = 1 remove responses list
+                if self.K == 1:
+                    sample[output_key] = sample[output_key][0]
+                    for keyword in is_complete_keywords:
+                        if keyword in sample[output_key]:
+                            sample[output_key] = sample[output_key].split(keyword)[0]
+                            sample[output_key] += keyword if keep_keywords else ""
             if self.do_log:
                 self.log(mb)
             if self.verbose:
@@ -205,14 +217,14 @@ class GPTRouter:
     def __init__(self, 
                  gpts: List[GPT],):
         self.gpts = gpts
+        self.inference_conditions = dict()
 
     def __call(self, 
                 batch: List[dict], 
                 gpt: GPT,
                 results: dict,
-                rank: int,
-                **kwargs):
-        result = gpt(batch, **kwargs)
+                rank: int,):
+        result = gpt(batch, **self.inference_conditions)
         results[rank] = result
 
     def __call__(self, 
@@ -221,6 +233,7 @@ class GPTRouter:
         """
         Naively splits batch among all gpts.
         """
+        self.inference_conditions = kwargs
         mb_size = (len(batch) + len(self.gpts) - 1) // len(self.gpts)
         mbs = chunk(batch, mb_size)
         results = {i: None for i in range(len(mbs))}

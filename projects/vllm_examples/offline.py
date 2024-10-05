@@ -11,16 +11,22 @@ gpt = GPT(model_name=model_path,
           tensor_parallel_size=2,
           dtype="float16",
           offline=True,
-          chat=False,)
+          chat=True,)
 
 
-def timed_generate(input):
+def timed_generate(input, K=1):
     t = time()
-    response = gpt(input, is_complete_keywords=["<DONE>"])[0]["response"]
+    responses = gpt(input, K=K)
+    responses = [sample["response"] for sample in responses]
     t = time() - t
-    return response, t
+    return responses, t
 
-input = [{"prompt": "Hello world!"}]
-response, t = timed_generate(input)
-print(response)
+input = [{"prompt": "Hello world!"}, {"prompt": "Goodbye world!"}]
+responses, t = timed_generate(input)
+print(responses)
+print(f"Generated in {t:.4f} seconds")
+
+# sample K = 5 responses per prompt
+responses, t = timed_generate(input, K=5)
+print(responses)
 print(f"Generated in {t:.4f} seconds")
