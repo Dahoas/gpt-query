@@ -1,3 +1,7 @@
+"""
+Implements a partially substitutable format string.
+"""
+
 class FString:
     text: str
     
