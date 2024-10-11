@@ -208,15 +208,16 @@ class GPTRouter:
 
     def __call(self, 
                 batch: List[dict], 
+                output_key: str,
                 gpt: GPT,
                 results: dict,
-                rank: int,
-                **kwargs):
-        result = gpt(batch, **kwargs)
+                rank: int,):
+        result = gpt(batch, output_key=output_key)
         results[rank] = result
 
     def __call__(self, 
                  batch: List[dict],
+                 output_key="response",
                  **kwargs):
         """
         Naively splits batch among all gpts.
@@ -226,7 +227,7 @@ class GPTRouter:
         results = {i: None for i in range(len(mbs))}
         threads = []
         for i, (mb, gpt) in enumerate(zip(mbs, self.gpts)):
-            t = threading.Thread(target=self.__call, args=(mb, gpt, results, i))
+            t = threading.Thread(target=self.__call, args=(mb, output_key, gpt, results, i))
             threads.append(t)
             t.start()
         for t in threads:
