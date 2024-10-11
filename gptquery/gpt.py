@@ -76,7 +76,7 @@ class GPT:
         self.retry_wait_time = retry_wait_time
         self.offline = offline
         self.chat = chat
-        self.K = K
+        self.init_K = K
         
         # TODO: support remote completion API
         assert self.offline or self.chat
@@ -140,8 +140,8 @@ class GPT:
                  output_key="response",
                  is_complete_keywords=[],
                  keep_keywords=False,
-                 K=1,):
-        self.K = K
+                 K=None,):
+        self.K = K if K is not None else self.init_K
         t = time()
         if prompt_key is None:
             prompt_key = "gptquery_prompt"
