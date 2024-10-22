@@ -76,7 +76,8 @@ class InferenceComposer:
         : param step: specifies name of pipeline in start to execute once.
         """
         # If requested is already present in the store, retrieve it
-        if data.get("id", None):
+        # TODO(Dahoas): fix. Issue with same sample being passed through pipeline twice
+        if False and data.get("id", None):
             # Check that requested data shares same state
             assert False not in [same_state(self.store[data["id"][0]], self.store[id]) for id in data["id"]]
             data = {k: [self.store[id].data[k] for id in data["id"]] for k in self.store[data["id"][0]]}

@@ -5,7 +5,7 @@ from typing import List, Dict, Any
 
 
 class JsonlInferenceComponent(InferenceComponent):
-    def __init__(self, name, max_steps):
+    def __init__(self, name, max_steps=1):
         super().__init__(name, max_steps)
 
     def run(self, jsonl: List[dict]):

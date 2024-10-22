@@ -80,6 +80,7 @@ class InferencePipeline(InferenceComponent):
             pipeline_state = state[self.depth+1]
         # Compute the batch_mask from the data
         pipeline_state.batch_mask = [self.stopping_criteria(s) for s in dict_to_jsonl(data)]
+        assert set(pipeline_state.batch_mask).issubset(set([True, False])) 
         # If entire batch is masked, go to end state
         if False not in pipeline_state.batch_mask:
             pipeline_state.name = "end"
