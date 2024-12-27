@@ -6,6 +6,9 @@ import torch
 import subprocess
 import pathlib
 import socket
+import json
+import ast
+import argparse
 
 
 ######## gpt.py utils ########
@@ -44,14 +47,12 @@ def dict_to_jsonl(d):
         return [{k: d[k][i] for k in d.keys()} for i in range(len(d[key]))]
 
 
-def jsonl_to_dict(l):
-    """
-    Converts jsonl format l = [{"k1": v1, "k2": v2}, ...., {"k1": v1, "k2": v2}] to dict.
-    """
-    if len(l) == 0:
-        return {}
-    else:
-        return {k: [s[k] for s in l] for k in l[0].keys()}
+def dump_jsonl(jsonl, filename, append=False):
+    c = "a" if append else "w"
+    with open(filename, c) as f:
+        for line in jsonl:
+            json.dump(line, f)
+            f.write("\n")
     
 
 ######## Logger utils ########
@@ -74,6 +75,28 @@ def recursively_serialize(d: Union[list, dict]):
             else:
                 d[k] = converter.get(type(v), str)(v)
     return d
+
+
+def load_jsonl(filename):
+    data = []
+    with open(filename, "r") as f:
+        lines = f.readlines()
+        for i, line in enumerate(lines):
+            try:
+                response = json.loads(line)
+            except json.decoder.JSONDecodeError as e:
+                print("Line num: ", i+1)
+                raise(e)
+            data.append(response)
+    return data
+
+
+def dump_jsonl(jsonl, filename, append=False):
+    c = "a" if append else "w"
+    with open(filename, c) as f:
+        for line in jsonl:
+            json.dump(line, f)
+            f.write("\n")
 
 
 ######## VLLM utils ########
@@ -123,3 +146,45 @@ def setup_models(model_name: str,
             "port": port,
         })
     return server_params
+
+
+######## Parsing Utils ########
+
+def parse_list_of_int_lists(arg):
+    """Parses a command line argument into a list of lists of integers."""
+    try:
+        # Use ast.literal_eval for safe evaluation of Python literals
+        result = ast.literal_eval(arg)
+        # Validate the structure and data types
+        if not isinstance(result, list):
+            raise ValueError("Input must be a list of lists")
+        for sublist in result:
+            if not isinstance(sublist, list):
+                raise ValueError("Each element must be a list of integers")
+            for item in sublist:
+                if not isinstance(item, int):
+                    raise ValueError("Each item within the sublists must be an integer")
+        return result
+    except (ValueError, SyntaxError) as e:
+        raise argparse.ArgumentTypeError(f"Invalid list of lists: {e}")
+    
+    
+######## Import Utils ########
+
+import importlib
+import os
+
+def dynamic_import(file_path, function_name):
+    try:
+        # Remove the .py extension and convert path separators to dots for module format
+        module_name = file_path.replace(".py", "").replace(os.sep, ".")
+
+        # Import the module dynamically
+        module = importlib.import_module(module_name)
+
+        # Get the function from the module
+        imported_function = getattr(module, function_name)
+        return imported_function
+    except (ImportError, AttributeError, ValueError) as e:
+        print(f"Error importing function '{function_name}' from '{file_path}': {e}")
+        return None
