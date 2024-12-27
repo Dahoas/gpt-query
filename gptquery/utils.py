@@ -47,12 +47,14 @@ def dict_to_jsonl(d):
         return [{k: d[k][i] for k in d.keys()} for i in range(len(d[key]))]
 
 
-def dump_jsonl(jsonl, filename, append=False):
-    c = "a" if append else "w"
-    with open(filename, c) as f:
-        for line in jsonl:
-            json.dump(line, f)
-            f.write("\n")
+def jsonl_to_dict(l):
+    """
+    Converts jsonl format l = [{"k1": v1, "k2": v2}, ...., {"k1": v1, "k2": v2}] to dict.
+    """
+    if len(l) == 0:
+        return {}
+    else:
+        return {k: [s[k] for s in l] for k in l[0].keys()}
     
 
 ######## Logger utils ########
