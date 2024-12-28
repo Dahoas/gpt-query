@@ -49,6 +49,7 @@ def run(input_path: str,
         max_model_len: int,
         prompt_file: str,
         prompt_key: str,
+        save_prompt: bool,
         **kwargs,):
     if ".jsonl" in input_path:
         data = load_jsonl(input_path)[lower:upper]  # assumes problems is given in 'question' field
@@ -89,7 +90,7 @@ def run(input_path: str,
 
     # query LLM
     if len(data) > 0:
-        data = model(data, K=K)
+        data = model(data, K=K, prompt_key="input_prompt" if save_prompt else None)
     print("Finished inference!")
 
 
@@ -122,6 +123,7 @@ if __name__ == "__main__":
     parser.add_argument("--max_model_len", default=None, type=int)
     parser.add_argument("--prompt_file", type=str, help="Path to python prompts file")
     parser.add_argument("--prompt_key", type=str, default="default")
+    parser.add_argument("--save_prompt", action="store_true", help="Log exact input prompt")
 
     args = parser.parse_args()
     args.server_params = setup_models(model_name=args.model_name,
