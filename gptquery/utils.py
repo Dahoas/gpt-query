@@ -9,6 +9,7 @@ import socket
 import json
 import ast
 import argparse
+import importlib.util
 
 
 ######## gpt.py utils ########
@@ -173,20 +174,11 @@ def parse_list_of_int_lists(arg):
     
 ######## Import Utils ########
 
-import importlib
-import os
-
-def dynamic_import(file_path, function_name):
+def load_prompts_file(file_path: str):
     try:
-        # Remove the .py extension and convert path separators to dots for module format
-        module_name = file_path.replace(".py", "").replace(os.sep, ".")
-
-        # Import the module dynamically
-        module = importlib.import_module(module_name)
-
-        # Get the function from the module
-        imported_function = getattr(module, function_name)
-        return imported_function
-    except (ImportError, AttributeError, ValueError) as e:
-        print(f"Error importing function '{function_name}' from '{file_path}': {e}")
-        return None
+        spec = importlib.util.spec_from_file_location("prompts", file_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module.prompts
+    except Exception as e:
+        raise ValueError(f"Error loading {file_path}!!!")

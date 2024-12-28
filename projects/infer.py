@@ -9,7 +9,7 @@ from time import sleep
 from datasets import load_dataset
 
 from gptquery import GPT
-from gptquery.utils import setup_models, load_jsonl, parse_list_of_int_lists, dynamic_import
+from gptquery.utils import setup_models, load_jsonl, parse_list_of_int_lists, load_prompts_file
 
 
 def filter_with_output(data, output_path, id_key):
@@ -66,7 +66,7 @@ def run(input_path: str,
         keys = {"OPENAI_API_KEY": "1"}
 
     # retrieve prompt
-    prompts = dynamic_import(prompt_file, "prompts")
+    prompts = load_prompts_file(prompt_file)
     task_prompt_text = prompts[prompt_key]
     
     # set up gpt
