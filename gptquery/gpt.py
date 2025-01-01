@@ -1,10 +1,11 @@
 import os
 from typing import List
 from time import time
-from dataclasses import dataclass, asdict
+import aiohttp
 import uuid
 from time import sleep
 import threading
+import asyncio
 
 from gptquery.utils import chunk
 from gptquery.logger import Logger
@@ -28,6 +29,8 @@ def configure_keys(keys: dict):
             os.environ["GEMINI_API_KEY"] = key
         elif name == "ANTHROPIC_API_KEY":
             os.environ["ANTHROPIC_API_KEY"] = key
+        elif name == "OPENROUTER_API_KEY":
+            os.environ["OPENROUTER_API_KEY"] = key
         else:
             os.environ[name] = key
 
@@ -41,7 +44,6 @@ class GPT:
                  mb_size=8,
                  task_prompt_text=None,
                  logging_path=None,
-                 oai_key=None,
                  keys=dict(),
                  verbose=False,
                  model_endpoint=None,
@@ -52,9 +54,10 @@ class GPT:
                  dtype=None,
                  quantization=None,
                  chat=True,
-                 K=1,):
-        if oai_key is not None:
-            keys["OPENAI_API_KEY"] = oai_key
+                 K=1,
+                 backend="litellm", # vllm, openrouter, litellm
+                 ):
+        self.keys = keys
         configure_keys(keys)
 
         self.model_name = model_name
@@ -77,6 +80,7 @@ class GPT:
         self.offline = offline
         self.chat = chat
         self.init_K = K
+        self.backend = backend if not self.offline else "vllm"
         
         # TODO: support remote completion API
         assert self.offline or self.chat
@@ -98,33 +102,63 @@ class GPT:
             
     def offline_apply_chat_template(self, message: List[dict]):
         return self.llm.llm_engine.tokenizer.tokenizer.apply_chat_template(message, tokenize=False, add_generation_prompt=True)
+    
+    async def async_completions(self, samples: List[LLMRequest]):
+        assert self.backend == "openrouter"
+        url = "https://openrouter.ai/api/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {os.environ['OPENROUTER_API_KEY']}",
+        }
+        async with aiohttp.ClientSession() as session:
+            async def completion(sample: LLMRequest):
+                try:
+                    json = {
+                        "model": self.model_name,
+                        "temperature": self.temperature,
+                        "max_tokens": self.max_num_tokens,
+                        "messages": sample.to_list(),
+                    }
+                    async with session.post(url, json=json, headers=headers) as response:
+                        response.raise_for_status()  # Raise an exception for bad status codes
+                        return await response.json()
+                except Exception as e:
+                    print(f"Exception: {e}")
+                    return None
+            tasks = [completion(sample) for sample in samples]
+            results = await asyncio.gather(*tasks)
+        return results
 
-    def synchronous_completion(self, samples: List[LLMRequest], is_complete_keywords: List[str]):
+    def completions(self, samples: List[LLMRequest], is_complete_keywords: List[str]):
         if self.offline:
+            assert self.backend == "vllm"
             inputs = self.offline_apply_chat_template([sample.to_list() for sample in samples]) if self.chat else [sample.to_prompt() for sample in samples]
             sampling_params = SamplingParams(temperature=self.temperature,
                                              max_tokens=self.max_num_tokens,
                                              stop=is_complete_keywords,
                                              n=self.K,)
-            responses = self.llm.generate(inputs,
-                                      sampling_params=sampling_params)
+            responses = self.llm.generate(inputs, sampling_params=sampling_params)
+            responses = [[response.outputs[i].text for i in range(self.K)] for response in responses]
         else:
-            responses = batch_completion(
-                        model=self.model_name,
-                        messages=[sample.to_list() for sample in samples],
-                        temperature=self.temperature,
-                        max_tokens=self.max_num_tokens,
-                        api_base=self.model_endpoint,
-                        stop=is_complete_keywords,
-                        n=self.K,
-                    )
+            if self.backend == "openrouter":
+                assert self.K == 1 and len(is_complete_keywords) == 0
+                responses = asyncio.run(self.async_completions(samples))
+                responses = [[response["choices"][0]["message"]["content"]] for response in responses]
+            elif self.backend == "vllm":
+                raise NotImplementedError("Online direct vllm client not supported yet.")
+            elif self.backend == "litellm":
+                responses = batch_completion(
+                            model=self.model_name,
+                            messages=[sample.to_list() for sample in samples],
+                            temperature=self.temperature,
+                            max_tokens=self.max_num_tokens,
+                            api_base=self.model_endpoint,
+                            stop=is_complete_keywords,
+                            n=self.K,
+                        )
+                responses = [[response.choices[i].message.content for i in range(self.K)] for response in responses]
+            else:
+                raise ValueError(f"Unknown backend: {self.backend}!!!")
         return responses
-    
-    def extract_responses(self, responses):
-        if self.offline:
-            return [[response.outputs[i].text for i in range(self.K)] for response in responses]
-        else:
-            return [[response.choices[i].message.content for i in range(self.K)] for response in responses]
     
     def is_complete_response(self, response, is_complete_keywords):
         if len(is_complete_keywords) == 0:
@@ -169,16 +203,12 @@ class GPT:
                     sample[prompt_key] = prompt
                 # Send requests
                 try:
-                    responses = self.synchronous_completion(requests, is_complete_keywords)
-                    # Extract responses from response format
-                    responses = self.extract_responses(responses)
+                    responses = self.completions(requests, is_complete_keywords)
                 except AttributeError as e:
                     if self.retry_wait_time:
                         print("Error encountered, sleeping...")
                         sleep(self.retry_wait_time)
-                        responses = self.synchronous_completion(requests, is_complete_keywords)
-                        # Extract responses from response format
-                        responses = self.extract_responses(responses)
+                        responses = self.completions(requests, is_complete_keywords)
                     else:
                         raise e
                 # Update output_key field
@@ -209,7 +239,6 @@ class GPT:
         return batch
 
 
-# TODO: use asyncio
 class GPTRouter:
     """
     Routes request to multiple GPT endpoints.
