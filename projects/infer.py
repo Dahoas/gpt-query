@@ -43,6 +43,7 @@ def run(input_path: str,
         K: int,
         server_params: List[dict],
         local: bool,
+        backend: str,
         offline: bool,
         gpus_per_model: int,
         chat: bool,
@@ -54,6 +55,10 @@ def run(input_path: str,
         **kwargs,):
     if ".jsonl" in input_path:
         data = load_jsonl(input_path)[lower:upper]  # assumes problems is given in 'question' field
+    elif ".json" in input_path:
+        with open(input_path, "r") as f:
+            data = json.load(f)
+        assert isinstance(data, list)
     else:
         data = list(load_dataset(input_path)[split])[lower:upper]
     print(f"Loaded {len(data)} prompts...")
@@ -83,6 +88,7 @@ def run(input_path: str,
                 task_prompt_text=task_prompt_text,
                 max_num_tokens=max_num_tokens,
                 keys=keys,
+                backend=backend,
                 temperature=temperature,
                 logging_path=output_path,
                 mb_size=mb_size,
@@ -115,10 +121,11 @@ if __name__ == "__main__":
     parser.add_argument("--K", type=int, default=1, help="Number of samples per prompt")
     
     parser.add_argument("--local", action="store_true")
+    parser.add_argument("--backend", type=str, default="litellm")
     parser.add_argument("--num_servers", default=1, type=int)
-    parser.add_argument("--gpus_per_model", type=int)
+    parser.add_argument("--gpus_per_model", type=int, default=0)
     parser.add_argument("--cuda_logging_folder", type=str, default="vllm_logs/")
-    parser.add_argument("--cuda_list", type=parse_list_of_int_lists)
+    parser.add_argument("--cuda_list", type=parse_list_of_int_lists, default=[])
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--sleep_time", default=None, type=int)
     parser.add_argument("--host", action="store_true")
