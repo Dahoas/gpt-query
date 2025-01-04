@@ -142,6 +142,7 @@ class GPT:
             if self.backend == "openrouter":
                 assert self.K == 1 and len(is_complete_keywords) == 0
                 responses = asyncio.run(self.async_completions(samples))
+                print(responses)
                 responses = [[response["choices"][0]["message"]["content"]] for response in responses]
             elif self.backend == "vllm":
                 raise NotImplementedError("Online direct vllm client not supported yet.")

@@ -40,6 +40,7 @@ def run(input_path: str,
         max_num_tokens: int,
         temperature: float,
         mb_size: int,
+        retry_wait_time: int,
         K: int,
         server_params: List[dict],
         local: bool,
@@ -84,10 +85,11 @@ def run(input_path: str,
     server_param = server_params[0]
     model_name = "openai/{model_name}".format(**server_param) if local and not offline else server_param["model_name"]
     model = GPT(model_name=model_name,
-                model_endpoint="http://{hostname}:{port}/v1".format(**server_param),
+                model_endpoint="http://{hostname}:{port}/v1".format(**server_param) if local else None,
                 task_prompt_text=task_prompt_text,
                 max_num_tokens=max_num_tokens,
                 keys=keys,
+                retry_wait_time=retry_wait_time,
                 backend=backend,
                 temperature=temperature,
                 logging_path=output_path,
@@ -119,6 +121,7 @@ if __name__ == "__main__":
     parser.add_argument("--temperature", default=0.7, type=float)
     parser.add_argument("--mb_size", type=int, default=1, help="Size of mini-batch querying LLM.")
     parser.add_argument("--K", type=int, default=1, help="Number of samples per prompt")
+    parser.add_argument("--retry_wait_time", type=int, default=None)
     
     parser.add_argument("--local", action="store_true")
     parser.add_argument("--backend", type=str, default="litellm")
