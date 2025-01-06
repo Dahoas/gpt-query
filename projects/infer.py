@@ -9,7 +9,7 @@ from time import sleep
 from datasets import load_dataset
 
 from gptquery import GPT
-from gptquery.utils import setup_models, load_jsonl, parse_list_of_int_lists, load_prompts_file
+from gptquery.utils import setup_models, load_jsonl, parse_list_of_int_lists, load_prompts_file, load_transformation
 
 
 def filter_with_output(data, output_path, id_key):
@@ -52,7 +52,7 @@ def run(input_path: str,
         prompt_file: str,
         prompt_key: str,
         save_prompt: bool,
-        shuffle: bool,
+        transformation: str,
         **kwargs,):
     if ".jsonl" in input_path:
         data = load_jsonl(input_path)[lower:upper]  # assumes problems is given in 'question' field
@@ -65,9 +65,10 @@ def run(input_path: str,
     print(f"Loaded {len(data)} prompts...")
     data = filter_with_output(data, output_path, id_key)
     print(f"{len(data)} prompts remaining after filtration...")
-    if shuffle:
-        import random
-        random.shuffle(data)
+    
+    if transformation is not None:
+        print(f"Loading and applying {transformation}...")
+        data = load_transformation(transformation)(data)
 
     # set up keys
     try:
@@ -139,7 +140,7 @@ if __name__ == "__main__":
     parser.add_argument("--prompt_key", type=str, default="default")
     parser.add_argument("--save_prompt", action="store_true", help="Log exact input prompt")
     
-    parser.add_argument("--shuffle", action="store_true")
+    parser.add_argument("--transformation", type=str, default=None, help="Path of form '$FILE_PATH:$TRANSFORMATION_NAME'")
 
     args = parser.parse_args()
     args.server_params = setup_models(model_name=args.model_name,

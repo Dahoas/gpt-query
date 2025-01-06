@@ -182,3 +182,21 @@ def load_prompts_file(file_path: str):
         return module.prompts
     except Exception as e:
         raise ValueError(f"Error loading {file_path}!!!")
+    
+    
+def load_transformation(transformation_path: str):
+    """
+    Assumes transformation_path in form '$FILE_PATH:$TRANSFORMATION_NAME'
+    """
+    try:
+        path_split = transformation_path.split(":")
+        file_path = ":".join(path_split[:-1])
+        transformation_name = path_split[-1]
+        spec = importlib.util.spec_from_file_location("transformation", file_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return getattr(module, transformation_name)
+    except Exception as e:
+        print(e)
+        raise ValueError(f"Error loading {transformation_path}!!!")
+        
