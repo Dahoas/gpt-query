@@ -47,6 +47,7 @@ def run(input_path: str,
         backend: str,
         offline: bool,
         gpus_per_model: int,
+        dtype: str,
         chat: bool,
         max_model_len: int,
         prompt_file: str,
@@ -97,7 +98,7 @@ def run(input_path: str,
                 mb_size=mb_size,
                 offline=offline,
                 tensor_parallel_size=gpus_per_model,
-                dtype="float16",
+                dtype=dtype,
                 chat=chat,
                 max_model_len=max_model_len)
 
@@ -128,6 +129,7 @@ if __name__ == "__main__":
     parser.add_argument("--backend", type=str, default="litellm")
     parser.add_argument("--num_servers", default=1, type=int)
     parser.add_argument("--gpus_per_model", type=int, default=0)
+    parser.add_argument("--dtype", type=str, default="auto", choices=["auto","float16","float32","bfloat16"])
     parser.add_argument("--cuda_logging_folder", type=str, default="vllm_logs/")
     parser.add_argument("--cuda_list", type=parse_list_of_int_lists, default=[])
     parser.add_argument("--port", type=int, default=8000)
@@ -146,6 +148,7 @@ if __name__ == "__main__":
     args.server_params = setup_models(model_name=args.model_name,
                                  num_servers=args.num_servers,
                                  gpus_per_model=args.gpus_per_model,
+                                 dtype=args.dtype,
                                  logging_folder=args.cuda_logging_folder,
                                  default_port=args.port,
                                  cuda_list=args.cuda_list,

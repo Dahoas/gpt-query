@@ -112,7 +112,9 @@ def setup_models(model_name: str,
                  cuda_list: List[List[int]]=[],
                  limit_memory=None,
                  host=True,
-                 max_model_len=None,):
+                 max_model_len=None,
+                 dtype="auto", # float16,float32,bfloat16
+                 ):
     server_params = []
     pathlib.Path(logging_folder).mkdir(exist_ok=True, parents=True)
     if len(cuda_list) > 0:
@@ -129,7 +131,7 @@ def setup_models(model_name: str,
         command = (
                 f"CUDA_VISIBLE_DEVICES={gpus} python -m vllm.entrypoints.openai.api_server "
                 f"--model {model_name} "
-                "--dtype=half "
+                f"--dtype {dtype} "
                 f"--port {port} "
             )
         if gpus_per_model > 1:

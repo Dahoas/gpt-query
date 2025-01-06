@@ -51,7 +51,7 @@ class GPT:
                  retry_wait_time=None,
                  offline=False,
                  tensor_parallel_size=None,
-                 dtype=None,
+                 dtype="auto",
                  quantization=None,
                  chat=True,
                  K=1,
