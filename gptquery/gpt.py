@@ -175,6 +175,7 @@ class GPT:
                  output_key="response",
                  is_complete_keywords=[],
                  keep_keywords=False,
+                 messages=False,
                  K=None,):
         self.K = K if K is not None else self.init_K
         t = time()
@@ -193,8 +194,13 @@ class GPT:
                 # Construct LLM requests
                 requests = []
                 for sample in cur_mb:
-                    prompt = self.task_prompt_text.format(**sample)
-                    messages = [Message(content=prompt, role="user")]
+                    if not messages:
+                        prompt = self.task_prompt_text.format(**sample)
+                        messages = [Message(content=prompt, role="user")]
+                    else:
+                        # each input sample should be in a list of messages
+                        assert isinstance(sample, list)
+                        messages = [Message(**message) for message in sample]
                     if len(sample[output_key][0]) > 0:
                         messages += [Message(content=sample[output_key], role="assistant"), Message(content="", role="user")]
                         # TODO(dahoas): how to update prompts if given multiple messages?
