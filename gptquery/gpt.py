@@ -199,8 +199,8 @@ class GPT:
                         messages = [Message(content=prompt, role="user")]
                     else:
                         # each input sample should be in a list of messages
-                        assert isinstance(sample, list)
-                        messages = [Message(**message) for message in sample]
+                        assert "messages" in sample
+                        messages = [Message(**message) for message in sample["messages"]]
                     if len(sample[output_key][0]) > 0:
                         messages += [Message(content=sample[output_key], role="assistant"), Message(content="", role="user")]
                         # TODO(dahoas): how to update prompts if given multiple messages?
