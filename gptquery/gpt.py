@@ -7,6 +7,8 @@ from time import sleep
 import threading
 import asyncio
 
+from openai import OpenAI
+
 from gptquery.utils import chunk
 from gptquery.logger import Logger
 from gptquery.datatypes import Message, LLMRequest
@@ -60,6 +62,7 @@ class GPT:
                  chat=True,
                  K=1,
                  backend="litellm", # vllm, openrouter, litellm
+                 url=None,
                  ):
         self.keys = keys
         configure_keys(keys)
@@ -85,6 +88,7 @@ class GPT:
         self.chat = chat
         self.init_K = K
         self.backend = backend if not self.offline else "vllm"
+        self.url = url
         
         # TODO: support remote completion API
         assert self.offline or self.chat
@@ -107,24 +111,22 @@ class GPT:
     def offline_apply_chat_template(self, message: List[dict]):
         return self.llm.llm_engine.tokenizer.tokenizer.apply_chat_template(message, tokenize=False, add_generation_prompt=True)
     
-    async def async_completions(self, samples: List[LLMRequest]):
-        assert self.backend == "openrouter"
-        url = "https://openrouter.ai/api/v1/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {os.environ['OPENROUTER_API_KEY']}",
-        }
+    async def async_completions(self, 
+                                samples: List[LLMRequest],
+                                url: str,
+                                key: str,):
+        assert (self.backend == "openrouter" or self.backend == "openai") and self.chat
+        client = OpenAI(base_url=url, api_key=key)
         async with aiohttp.ClientSession() as session:
             async def completion(sample: LLMRequest):
                 try:
-                    json = {
-                        "model": self.model_name,
-                        "temperature": self.temperature,
-                        "max_tokens": self.max_num_tokens,
-                        "messages": sample.to_list(),
-                    }
-                    async with session.post(url, json=json, headers=headers) as response:
-                        response.raise_for_status()  # Raise an exception for bad status codes
-                        return await response.json()
+                    response = client.chat.completions.create(
+                        model=self.model_name,
+                        messages=sample.to_list(),
+                        temperature=self.temperature,
+                        max_tokens=self.max_num_tokens,
+                    )
+                    return response
                 except Exception as e:
                     print(f"Exception: {e}")
                     return None
@@ -144,10 +146,21 @@ class GPT:
             responses = [[response.outputs[i].text for i in range(self.K)] for response in responses]
         else:
             if self.backend == "openrouter":
+                assert self.K == 1 and len(is_complete_keywords) == 0 and "deepseek" not in self.model_name
+                url = "https://openrouter.ai/api/v1"
+                key = os.environ["OPENROUTER_API_KEY"]
+                responses = asyncio.run(self.async_completions(samples, url, key))
+                responses = [[response.choices[0].message.content] for response in responses]
+            elif self.backend == "openai":
                 assert self.K == 1 and len(is_complete_keywords) == 0
-                responses = asyncio.run(self.async_completions(samples))
-                print(responses)
-                responses = [[response["choices"][0]["message"]["content"]] for response in responses]
+                url = self.url
+                key = list(self.keys.values())[0]
+                responses = asyncio.run(self.async_completions(samples, url, key))
+                if hasattr(responses[0].choices[0].message, "reasoning_content"):
+                    # NOTE: throwing away content and keeping reasoning content
+                    responses = [[response.choices[0].message.reasoning_content] for response in responses]
+                else:
+                    responses = [[response.choices[0].message.content] for response in responses]
             elif self.backend == "vllm":
                 raise NotImplementedError("Online direct vllm client not supported yet.")
             elif self.backend == "litellm":
