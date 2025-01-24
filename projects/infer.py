@@ -43,6 +43,7 @@ def run(input_path: str,
         retry_wait_time: int,
         K: int,
         server_params: List[dict],
+        url: str,
         local: bool,
         backend: str,
         offline: bool,
@@ -100,7 +101,8 @@ def run(input_path: str,
                 tensor_parallel_size=gpus_per_model,
                 dtype=dtype,
                 chat=chat,
-                max_model_len=max_model_len)
+                max_model_len=max_model_len,
+                url=url,)
 
     # query LLM
     if len(data) > 0:
@@ -125,6 +127,7 @@ if __name__ == "__main__":
     parser.add_argument("--K", type=int, default=1, help="Number of samples per prompt")
     parser.add_argument("--retry_wait_time", type=int, default=None)
     
+    parser.add_argument("--url", type=str, default=None,)
     parser.add_argument("--local", action="store_true")
     parser.add_argument("--backend", type=str, default="litellm")
     parser.add_argument("--num_servers", default=1, type=int)
