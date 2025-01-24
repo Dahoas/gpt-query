@@ -179,7 +179,7 @@ class GPT:
                  output_key="response",
                  is_complete_keywords=[],
                  keep_keywords=False,
-                 messages=False,
+                 message_format=False,
                  K=None,):
         self.K = K if K is not None else self.init_K
         t = time()
@@ -198,7 +198,7 @@ class GPT:
                 # Construct LLM requests
                 requests = []
                 for sample in cur_mb:
-                    if not messages:
+                    if not message_format:
                         prompt = self.task_prompt_text.format(**sample)
                         messages = [Message(content=prompt, role="user")]
                     else:
