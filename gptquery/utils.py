@@ -119,6 +119,10 @@ def setup_models(model_name: str,
                  max_model_len=None,
                  dtype="auto", # float16,float32,bfloat16
                  ):
+    if not host:
+        return [{
+            "model_name": model_name,
+        }]
     server_params = []
     pathlib.Path(logging_folder).mkdir(exist_ok=True, parents=True)
     if len(cuda_list) > 0:
