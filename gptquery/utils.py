@@ -2,7 +2,6 @@ import os
 import numpy as np
 from collections import defaultdict
 from typing import Union, List
-import torch
 import subprocess
 import pathlib
 import socket
@@ -10,6 +9,11 @@ import json
 import ast
 import argparse
 import importlib.util
+
+try:
+    import torch
+except ModuleNotFoundError:
+    print("torch not found!!!")
 
 
 ######## gpt.py utils ########

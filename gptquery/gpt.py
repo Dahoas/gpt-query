@@ -12,7 +12,11 @@ from gptquery.logger import Logger
 from gptquery.datatypes import Message, LLMRequest
 
 from litellm import batch_completion, acompletion
-from vllm import LLM, SamplingParams
+
+try:
+    from vllm import LLM, SamplingParams
+except ModuleNotFoundError:
+    print("vllm not found!!!")
 
 
 def configure_keys(keys: dict):
