@@ -44,6 +44,7 @@ def run(input_path: str,
         K: int,
         server_params: List[dict],
         url: str,
+        host: bool,
         local: bool,
         backend: str,
         offline: bool,
@@ -88,7 +89,7 @@ def run(input_path: str,
     server_param = server_params[0]
     model_name = "openai/{model_name}".format(**server_param) if local and not offline else server_param["model_name"]
     model = GPT(model_name=model_name,
-                model_endpoint="http://{hostname}:{port}/v1".format(**server_param) if local else None,
+                model_endpoint="http://{hostname}:{port}/v1".format(**server_param) if host else None,
                 task_prompt_text=task_prompt_text,
                 max_num_tokens=max_num_tokens,
                 keys=keys,
@@ -132,13 +133,13 @@ if __name__ == "__main__":
     parser.add_argument("--backend", type=str, default="litellm")
     parser.add_argument("--num_servers", default=1, type=int)
     parser.add_argument("--gpus_per_model", type=int, default=0)
-    parser.add_argument("--dtype", type=str, default="auto", choices=["auto","float16","float32","bfloat16"])
     parser.add_argument("--cuda_logging_folder", type=str, default="vllm_logs/")
     parser.add_argument("--cuda_list", type=parse_list_of_int_lists, default=[])
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--sleep_time", default=None, type=int)
     parser.add_argument("--host", action="store_true")
     parser.add_argument("--offline", action="store_true")
+    parser.add_argument("--dtype", type=str, default="auto", choices=["auto", "float16", "float32", "bfloat16"])
     parser.add_argument("--chat", action="store_true")
     parser.add_argument("--max_model_len", default=None, type=int)
     parser.add_argument("--prompt_file", type=str, help="Path to python prompts file")
@@ -156,7 +157,7 @@ if __name__ == "__main__":
                                  default_port=args.port,
                                  cuda_list=args.cuda_list,
                                  host=args.host,
-                                 max_model_len=args.max_model_len)
+                                 max_model_len=args.max_model_len,)
     if args.sleep_time:
         sleep(args.sleep_time)
 
